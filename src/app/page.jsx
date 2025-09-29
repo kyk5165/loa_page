@@ -46,11 +46,9 @@ export default function App() {
 
     // 닉네임 로컬스토리지에서 불러오기
     useEffect(() => {
-        if (typeof window !== 'undefined') {
-            const storedNickname = localStorage.getItem('checklist_nickname');
-            if (storedNickname) {
-                setNickname(storedNickname);
-            }
+        const storedNickname = localStorage.getItem('checklist_nickname');
+        if (storedNickname) {
+            setNickname(storedNickname);
         }
         setIsMounted(true);
     }, []);
@@ -79,8 +77,6 @@ export default function App() {
 
     // 로컬 스토리지에 변경사항 백업
     const saveToLocalStorage = useCallback((updates) => {
-        if (typeof window === 'undefined') return;
-        
         try {
             const backupKey = `pending_updates_${nickname}`;
             localStorage.setItem(backupKey, JSON.stringify(Array.from(updates.entries())));
@@ -92,8 +88,6 @@ export default function App() {
 
     // 로컬 스토리지에서 변경사항 복원
     const loadFromLocalStorage = useCallback(() => {
-        if (typeof window === 'undefined') return new Map();
-        
         try {
             const backupKey = `pending_updates_${nickname}`;
             const backup = localStorage.getItem(backupKey);
@@ -125,10 +119,8 @@ export default function App() {
             setPendingUpdates(new Map());
             
             // 성공 시 로컬 백업 삭제
-            if (typeof window !== 'undefined') {
-                const backupKey = `pending_updates_${nickname}`;
-                localStorage.removeItem(backupKey);
-            }
+            const backupKey = `pending_updates_${nickname}`;
+            localStorage.removeItem(backupKey);
             
             console.log('배치 업데이트 완료');
         } catch (err) {
@@ -150,8 +142,6 @@ export default function App() {
 
     // 페이지 이탈 시 즉시 저장
     useEffect(() => {
-        if (typeof window === 'undefined') return;
-
         const handleBeforeUnload = (event) => {
             if (pendingUpdates.size > 0) {
                 // 동기적으로 저장 시도
