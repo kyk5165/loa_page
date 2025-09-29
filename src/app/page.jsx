@@ -37,9 +37,11 @@ export default function App() {
 
     // 닉네임 로컬스토리지에서 불러오기
     useEffect(() => {
-        const storedNickname = localStorage.getItem('checklist_nickname');
-        if (storedNickname) {
-            setNickname(storedNickname);
+        if (typeof window !== 'undefined') {
+            const storedNickname = localStorage.getItem('checklist_nickname');
+            if (storedNickname) {
+                setNickname(storedNickname);
+            }
         }
         setIsMounted(true);
     }, []);
@@ -68,6 +70,8 @@ export default function App() {
 
     // 로컬 스토리지에 변경사항 백업
     const saveToLocalStorage = useCallback((updates) => {
+        if (typeof window === 'undefined') return;
+        
         try {
             const backupKey = `pending_updates_${nickname}`;
             localStorage.setItem(backupKey, JSON.stringify(Array.from(updates.entries())));
@@ -79,6 +83,8 @@ export default function App() {
 
     // 로컬 스토리지에서 변경사항 복원
     const loadFromLocalStorage = useCallback(() => {
+        if (typeof window === 'undefined') return new Map();
+        
         try {
             const backupKey = `pending_updates_${nickname}`;
             const backup = localStorage.getItem(backupKey);
@@ -110,8 +116,10 @@ export default function App() {
             setPendingUpdates(new Map());
             
             // 성공 시 로컬 백업 삭제
-            const backupKey = `pending_updates_${nickname}`;
-            localStorage.removeItem(backupKey);
+            if (typeof window !== 'undefined') {
+                const backupKey = `pending_updates_${nickname}`;
+                localStorage.removeItem(backupKey);
+            }
             
             console.log('배치 업데이트 완료');
         } catch (err) {
@@ -133,6 +141,8 @@ export default function App() {
 
     // 페이지 이탈 시 즉시 저장
     useEffect(() => {
+        if (typeof window === 'undefined') return;
+
         const handleBeforeUnload = (event) => {
             if (pendingUpdates.size > 0) {
                 // 동기적으로 저장 시도
@@ -330,7 +340,7 @@ const NicknameInput = ({ onNicknameSet }) => {
                         value={input}
                         onChange={(e) => setInput(e.target.value)}
                         placeholder="예: 용감한_개척자"
-                        className={`w-full px-4 py-2 border rounded-lg focus:ring-indigo-500 focus:border-indigo-500 transition ${error ? 'border-red-500' : 'border-gray-300'}`}
+                        className={`w-full px-4 py-2 border rounded-lg focus:ring-indigo-500 focus:border-indigo-500 transition text-gray-900 placeholder-gray-500 ${error ? 'border-red-500' : 'border-gray-300'}`}
                         maxLength={20}
                     />
                     {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
