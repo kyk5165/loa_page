@@ -64,8 +64,11 @@ export const useBatchUpdateProgress = () => {
       return updateData;
     },
     onSuccess: (data, variables) => {
-      // 성공 시 캐시 무효화하여 최신 데이터 다시 가져오기
-      queryClient.invalidateQueries(['userProgress', variables.nickname]);
+      // 성공 시 userProgress만 refetch (achievements는 영향받지 않음)
+      queryClient.refetchQueries({
+        queryKey: ['userProgress', variables.nickname],
+        exact: true
+      });
     },
   });
 };
