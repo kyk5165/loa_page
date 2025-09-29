@@ -1,7 +1,7 @@
 'use client'; // Next.js 클라이언트 컴포넌트임을 알림
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Check, Square, Search, Filter, Loader2, LogOut, ArrowLeft } from 'lucide-react';
+import { Check, Square, Search, Filter, Loader2, LogOut, ArrowLeft, RotateCcw, AlertTriangle } from 'lucide-react';
 import { useAchievements, useUserProgress, useBatchUpdateProgress } from '../hooks/useSupabaseQueries';
 
 // ====================================================================
@@ -29,6 +29,7 @@ export default function App() {
     const [searchTerm, setSearchTerm] = useState('');
     const [isMounted, setIsMounted] = useState(false);
     const [pendingUpdates, setPendingUpdates] = useState(new Map()); // 배치 업데이트용
+    const [showToggleAllModal, setShowToggleAllModal] = useState(false); // 전체 토글 경고 모달
 
     // React Query 훅들
     const { data: allAchievements = [], isLoading: achievementsLoading, error: achievementsError } = useAchievements();
@@ -194,6 +195,29 @@ export default function App() {
         });
     }, [nickname, saveToLocalStorage]);
 
+    // 전체 토글 함수
+    const toggleAllAchievements = useCallback(() => {
+        if (!nickname || !SUPABASE_URL?.startsWith('http')) {
+            console.warn('Supabase 미설정. 로컬 상태만 변경됨.');
+            return;
+        }
+
+        // 현재 진행상황을 기반으로 전체 반전
+        const newUpdates = new Map();
+        progress.forEach(item => {
+            const pendingUpdate = pendingUpdates.get(item.id);
+            const currentStatus = pendingUpdate !== undefined ? pendingUpdate : item.is_completed;
+            newUpdates.set(item.id, !currentStatus);
+        });
+
+        setPendingUpdates(newUpdates);
+        
+        // 로컬 스토리지에 백업
+        saveToLocalStorage(newUpdates);
+        
+        console.log(`전체 ${progress.length}개 업적 상태 반전`);
+    }, [nickname, progress, pendingUpdates, saveToLocalStorage]);
+
     // 페이지 로드 시 로컬 백업 복원
     useEffect(() => {
         if (nickname && isMounted) {
@@ -285,6 +309,7 @@ export default function App() {
                     setSearchTerm={setSearchTerm}
                     filter={filter}
                     setFilter={setFilter}
+                    onToggleAll={() => setShowToggleAllModal(true)}
                 />
 
                 <Checklist
@@ -302,6 +327,18 @@ export default function App() {
                     isSaving={batchUpdateMutation.isPending}
                     onSaveNow={saveBatchUpdates}
                 />
+
+                {/* 전체 토글 경고 모달 */}
+                {showToggleAllModal && (
+                    <ToggleAllModal
+                        onConfirm={() => {
+                            toggleAllAchievements();
+                            setShowToggleAllModal(false);
+                        }}
+                        onCancel={() => setShowToggleAllModal(false)}
+                        totalCount={progress.length}
+                    />
+                )}
             </div>
         </div>
     );
@@ -357,7 +394,7 @@ const NicknameInput = ({ onNicknameSet }) => {
     );
 };
 
-const Controls = React.memo(({ searchTerm, setSearchTerm, filter, setFilter }) => {
+const Controls = React.memo(({ searchTerm, setSearchTerm, filter, setFilter, onToggleAll }) => {
     const filters = [
         { key: 'all', label: '전체' },
         { key: 'completed', label: '완료' },
@@ -394,9 +431,60 @@ const Controls = React.memo(({ searchTerm, setSearchTerm, filter, setFilter }) =
                     </button>
                 ))}
             </div>
+
+            <button
+                onClick={onToggleAll}
+                className="flex items-center px-4 py-2 bg-orange-500 text-white text-sm font-medium rounded-xl hover:bg-orange-600 transition duration-200 shadow-sm"
+                title="전체 업적 상태 반전"
+            >
+                <RotateCcw className="h-4 w-4 mr-2" />
+                전체 반전
+            </button>
         </div>
     );
 });
+
+const ToggleAllModal = ({ onConfirm, onCancel, totalCount }) => {
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6">
+                <div className="flex items-center mb-4">
+                    <div className="flex-shrink-0 w-10 h-10 bg-orange-100 rounded-full flex items-center justify-center mr-3">
+                        <AlertTriangle className="h-6 w-6 text-orange-600" />
+                    </div>
+                    <div>
+                        <h3 className="text-lg font-semibold text-gray-900">전체 상태 반전</h3>
+                        <p className="text-sm text-gray-500">모든 업적의 완료 상태가 반전됩니다</p>
+                    </div>
+                </div>
+
+                <div className="mb-6">
+                    <p className="text-gray-700 mb-2">
+                        <strong>{totalCount}개</strong>의 업적 상태가 모두 반전됩니다.
+                    </p>
+                    <p className="text-sm text-gray-500">
+                        이 작업은 되돌릴 수 없습니다. 계속하시겠습니까?
+                    </p>
+                </div>
+
+                <div className="flex space-x-3">
+                    <button
+                        onClick={onCancel}
+                        className="flex-1 px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition duration-200 font-medium"
+                    >
+                        취소
+                    </button>
+                    <button
+                        onClick={onConfirm}
+                        className="flex-1 px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition duration-200 font-medium"
+                    >
+                        확인
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
 
 const Checklist = ({ list, toggleCompletion, isLoading, error, totalCount, completedCount, pendingUpdates, isSaving, onSaveNow }) => {
     if (isLoading) {
