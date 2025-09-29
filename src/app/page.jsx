@@ -125,6 +125,7 @@ export default function App() { // Next.js page 컴포넌트는 기본 내보내
             a.id === achievementId ? { ...a, is_completed: newStatus } : a
         ));
 
+        // Supabase 키가 설정되지 않았다면 API 호출을 건너뜁니다.
         if (!nickname || !SUPABASE_URL || SUPABASE_URL.includes('YOUR_SUPABASE_PROJECT_URL')) {
             console.warn('Supabase URL/Key가 설정되지 않아 로컬에서만 상태 변경됨.');
             return;
@@ -144,7 +145,9 @@ export default function App() { // Next.js page 컴포넌트는 기본 내보내
                     'apikey': SUPABASE_KEY,
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${SUPABASE_KEY}`,
-                    'Prefer': 'resolution=merge-duplicates', // Upsert 옵션: 충돌 시 업데이트
+                    // 🚨 해결책: 'Prefer' 헤더를 'resolution=merge-duplicates' 대신 'onConflict'로 변경해야 합니다.
+                    // 'onConflict'는 충돌을 일으키는 컬럼을 명시적으로 알려주어 Upsert를 수행하도록 합니다.
+                    'Prefer': 'resolution=merge-duplicates,onConflict=nickname,achievement_id',
                 },
                 body: JSON.stringify(payload),
             });
