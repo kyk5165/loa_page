@@ -1,7 +1,7 @@
 'use client'; // Next.js 클라이언트 컴포넌트임을 알림
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Check, Square, Search, Filter, Loader2, LogOut, ArrowLeft, RotateCcw, AlertTriangle } from 'lucide-react';
+import { Check, Square, Search, Filter, Loader2, LogOut, ArrowLeft, RotateCcw, AlertTriangle, MessageCircle } from 'lucide-react';
 import { useAchievements, useUserProgress, useBatchUpdateProgress } from '../hooks/useSupabaseQueries';
 
 // ====================================================================
@@ -18,6 +18,14 @@ const debounce = (func, delay) => {
         clearTimeout(timeoutId);
         timeoutId = setTimeout(() => func.apply(this, args), delay);
     };
+};
+
+// ====================================================================
+// 3. Discord URL 생성 함수
+// ====================================================================
+const getDiscordUrl = (discordUrl) => {
+    if (!discordUrl) return null;
+    return `https://discord.com/channels/${discordUrl}`;
 };
 
 // ====================================================================
@@ -627,6 +635,20 @@ const Checklist = ({ list, toggleCompletion, isLoading, error, totalCount, compl
                                             >
                                                 {item.content}
                                             </p>
+                                            {item.discord_url && (
+                                                <div className="mt-2">
+                                                    <a 
+                                                        href={getDiscordUrl(item.discord_url)} 
+                                                        target="_blank" 
+                                                        rel="noopener noreferrer"
+                                                        className="inline-flex items-center gap-1.5 px-2.5 py-1.5 bg-indigo-50 text-indigo-700 text-xs font-medium rounded-lg hover:bg-indigo-100 hover:text-indigo-800 transition-all duration-200 border border-indigo-200 hover:border-indigo-300"
+                                                        onClick={(e) => e.stopPropagation()} // 체크박스 클릭 방지
+                                                    >
+                                                        <MessageCircle className="h-3.5 w-3.5" />
+                                                        <span>💡 Discord 팁</span>
+                                                    </a>
+                                                </div>
+                                            )}
                                         </div>
                                         {item.point && (
                                             <div className="ml-3 flex-shrink-0">
