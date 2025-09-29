@@ -1,24 +1,19 @@
-'use client'; // 이 파일이 클라이언트 컴포넌트임을 Next.js에 알립니다.
+'use client'; // Next.js 클라이언트 컴포넌트임을 알림
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Check, Square, Search, Filter, Loader2, LogOut, ArrowLeft } from 'lucide-react';
+import { createClient } from '@supabase/supabase-js';
 
 // ====================================================================
-// ⚠️ 1. Supabase 환경 변수 설정
-// 이 값들은 3단계에서 Supabase 프로젝트를 만든 후 실제로 채워 넣어야 합니다.
+// 1. Supabase 클라이언트 초기화
 // ====================================================================
-// src/app/page.jsx 상단 수정
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SUPABASE_KEY = process.env.NEXT_PUBLIC_SUPABASE_KEY;
-const API_BASE_URL = `${SUPABASE_URL}/rest/v1`;
+const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 // ====================================================================
-// 2. [제거됨] 정적 업적 목록 (DB에서 동적으로 가져옵니다)
+// 2. 디바운스 유틸리티
 // ====================================================================
-
-/**
- * 디바운스 유틸리티 함수 (검색 성능 최적화)
- */
 const debounce = (func, delay) => {
     let timeoutId;
     return (...args) => {
@@ -28,71 +23,61 @@ const debounce = (func, delay) => {
 };
 
 // ====================================================================
-// 3. 메인 애플리케이션 컴포넌트 (Next.js의 page 컴포넌트 역할)
+// 3. 메인 페이지 컴포넌트
 // ====================================================================
-
-export default function App() { // Next.js page 컴포넌트는 기본 내보내기(default export)를 사용합니다.
+export default function App() {
     const [nickname, setNickname] = useState('');
-    const [allAchievements, setAllAchievements] = useState([]); // 새 상태: 전체 업적 목록
-    const [progress, setProgress] = useState([]); // 사용자 진행 상황과 병합된 최종 목록
+    const [allAchievements, setAllAchievements] = useState([]);
+    const [progress, setProgress] = useState([]);
     const [isLoading, setIsLoading] = useState(false);
-    const [filter, setFilter] = useState('all'); // 'all', 'completed', 'incomplete'
+    const [filter, setFilter] = useState('all');
     const [searchTerm, setSearchTerm] = useState('');
     const [error, setError] = useState(null);
-    const [isMounted, setIsMounted] = useState(false); // 클라이언트 마운트 상태 추적을 위한 상태 추가
+    const [isMounted, setIsMounted] = useState(false);
 
-    // 닉네임 유효성 검사 (로컬 스토리지에서 닉네임 불러오기)
+    // 닉네임 로컬스토리지에서 불러오기
     useEffect(() => {
         const storedNickname = localStorage.getItem('checklist_nickname');
         if (storedNickname) {
             setNickname(storedNickname);
         }
-        setIsMounted(true); // 로컬 스토리지 확인 후 클라이언트 마운트 완료
+        setIsMounted(true);
     }, []);
 
-    // 4. 데이터 로드 로직 (전체 업적 목록 + 사용자 진행 상황)
+    // ----------------------------------------------------------------
+    // 4. 데이터 로드 (업적 목록 + 사용자 진행 상황)
+    // ----------------------------------------------------------------
     const fetchUserProgress = useCallback(async (currentNickname) => {
         setIsLoading(true);
         setError(null);
 
-        if (!currentNickname || !SUPABASE_URL || SUPABASE_URL.includes('YOUR_SUPABASE_PROJECT_URL')) {
-            // Supabase 설정이 안 된 경우, 오류 메시지 표시
+        if (!currentNickname || !SUPABASE_URL?.startsWith('http')) {
             setError("Supabase 설정이 필요합니다. 환경 변수를 확인해주세요.");
             setIsLoading(false);
             return;
         }
 
         try {
-            // 1. 전체 업적 목록 (achievements 테이블) 조회
-            const achievementsResponse = await fetch(`${API_BASE_URL}/achievements?select=id,name,content&order=id.asc`, {
-                headers: {
-                    'apikey': SUPABASE_KEY,
-                    'Authorization': `Bearer ${SUPABASE_KEY}`,
-                }
-            });
+            // 1. 전체 업적 목록 가져오기
+            const { data: achievements, error: achError } = await supabase
+                .from('achievements')
+                .select('id, name, content')
+                .order('id', { ascending: true });
 
-            if (!achievementsResponse.ok) {
-                throw new Error(`업적 목록 로드 실패: ${achievementsResponse.statusText}`);
-            }
-            const achievementsList = await achievementsResponse.json();
-            setAllAchievements(achievementsList); // 전체 업적 목록 상태 저장
+            if (achError) throw achError;
+            setAllAchievements(achievements);
 
-            // 2. 사용자 진행 상황 (user_progress 테이블) 조회
-            const progressResponse = await fetch(`${API_BASE_URL}/user_progress?nickname=eq.${encodeURIComponent(currentNickname)}&select=id,achievement_id,is_completed`, {
-                headers: {
-                    'apikey': SUPABASE_KEY,
-                    'Authorization': `Bearer ${SUPABASE_KEY}`,
-                }
-            });
+            // 2. 사용자 진행 상황 가져오기
+            const { data: userProgress, error: progError } = await supabase
+                .from('user_progress')
+                .select('id, achievement_id, is_completed')
+                .eq('nickname', currentNickname);
 
-            if (!progressResponse.ok) {
-                throw new Error(`진행 상황 로드 실패: ${progressResponse.statusText}`);
-            }
-            const progressData = await progressResponse.json();
+            if (progError) throw progError;
 
-            // 3. 정적 업적 목록과 사용자 진행 상황을 병합
-            const mergedList = achievementsList.map(ach => {
-                const userStatus = progressData.find(p => p.achievement_id === ach.id);
+            // 3. 병합
+            const mergedList = achievements.map((ach) => {
+                const userStatus = userProgress.find((p) => p.achievement_id === ach.id);
                 return {
                     ...ach,
                     is_completed: userStatus ? userStatus.is_completed : false,
@@ -100,106 +85,90 @@ export default function App() { // Next.js page 컴포넌트는 기본 내보내
                 };
             });
             setProgress(mergedList);
-
         } catch (err) {
             console.error('Error fetching progress:', err);
             setError(`데이터 로드 실패: ${err.message}`);
         } finally {
             setIsLoading(false);
         }
-    }, [SUPABASE_URL, SUPABASE_KEY, API_BASE_URL]);
+    }, []);
 
-    // 닉네임이 변경되거나 초기화될 때 데이터 로드
     useEffect(() => {
-        if (nickname && isMounted) { // isMounted 상태를 추가하여 클라이언트 로드 후 실행 보장
+        if (nickname && isMounted) {
             fetchUserProgress(nickname);
         }
     }, [nickname, fetchUserProgress, isMounted]);
 
-    // 5. 데이터 업데이트 로직 (체크박스 토글) - Supabase Upsert 사용
+    // ----------------------------------------------------------------
+    // 5. 진행 상황 토글 (Upsert 사용)
+    // ----------------------------------------------------------------
     const toggleCompletion = useCallback(async (achievementId, currentStatus) => {
         const newStatus = !currentStatus;
 
-        // 1. 로컬 상태 즉시 업데이트 (사용자 경험 개선)
-        setProgress(prev => prev.map(a =>
-            a.id === achievementId ? { ...a, is_completed: newStatus } : a
-        ));
+        // 로컬 상태 업데이트 (UX 개선)
+        setProgress(prev =>
+            prev.map(a => a.id === achievementId ? { ...a, is_completed: newStatus } : a)
+        );
 
-        // Supabase 키가 설정되지 않았다면 API 호출을 건너뜁니다.
-        if (!nickname || !SUPABASE_URL || SUPABASE_URL.includes('YOUR_SUPABASE_PROJECT_URL')) {
-            console.warn('Supabase URL/Key가 설정되지 않아 로컬에서만 상태 변경됨.');
+        if (!nickname || !SUPABASE_URL?.startsWith('http')) {
+            console.warn('Supabase 미설정. 로컬 상태만 변경됨.');
             return;
         }
 
-        const payload = {
-            nickname: nickname,
-            achievement_id: achievementId,
-            is_completed: newStatus,
-        };
-
         try {
-            // Supabase Upsert 요청 (POST + resolution=merge-duplicates 헤더)
-            const response = await fetch(`${API_BASE_URL}/user_progress`, {
-                method: 'POST',
-                headers: {
-                    'apikey': SUPABASE_KEY,
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${SUPABASE_KEY}`,
-                    // 🚨 해결책: 'Prefer' 헤더를 'resolution=merge-duplicates' 대신 'onConflict'로 변경해야 합니다.
-                    // 'onConflict'는 충돌을 일으키는 컬럼을 명시적으로 알려주어 Upsert를 수행하도록 합니다.
-                    'Prefer': 'resolution=merge-duplicates,onConflict=nickname,achievement_id',
-                },
-                body: JSON.stringify(payload),
-            });
+            const { error: upsertError } = await supabase
+                .from('user_progress')
+                .upsert(
+                    {
+                        nickname,
+                        achievement_id: achievementId,
+                        is_completed: newStatus,
+                    },
+                    { onConflict: 'nickname,achievement_id' }
+                );
 
-            if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.message || '데이터 업데이트 실패');
-            }
+            if (upsertError) throw upsertError;
         } catch (err) {
             console.error('Error updating progress:', err);
             setError(`업데이트 실패: ${err.message}`);
-            // 실패 시 로컬 상태 롤백 (선택적)
-            setProgress(prev => prev.map(a =>
-                a.id === achievementId ? { ...a, is_completed: currentStatus } : a
-            ));
+            // 실패 시 롤백
+            setProgress(prev =>
+                prev.map(a => a.id === achievementId ? { ...a, is_completed: currentStatus } : a)
+            );
         }
-    }, [nickname, SUPABASE_URL, SUPABASE_KEY, API_BASE_URL]);
+    }, [nickname]);
 
-
-    // 6. 필터링 및 검색 로직
+    // ----------------------------------------------------------------
+    // 6. 필터링 + 검색
+    // ----------------------------------------------------------------
     const filteredAndSearchedList = useMemo(() => {
         let list = progress;
-
-        // 1. 필터링
         if (filter === 'completed') {
             list = list.filter(item => item.is_completed);
         } else if (filter === 'incomplete') {
             list = list.filter(item => !item.is_completed);
         }
-
-        // 2. 검색
         if (searchTerm) {
-            const lowerCaseSearchTerm = searchTerm.toLowerCase();
+            const term = searchTerm.toLowerCase();
             list = list.filter(item =>
-                item.name.toLowerCase().includes(lowerCaseSearchTerm) ||
-                item.content.toLowerCase().includes(lowerCaseSearchTerm)
+                item.name.toLowerCase().includes(term) ||
+                item.content.toLowerCase().includes(term)
             );
         }
-
         return list;
     }, [progress, filter, searchTerm]);
 
-    // 7. 클라이언트 마운트 전 로딩 상태 (하이드레이션 오류 방지)
+    // ----------------------------------------------------------------
+    // 7. UI 렌더링
+    // ----------------------------------------------------------------
     if (!isMounted) {
         return (
-             <div className="min-h-screen flex items-center justify-center bg-gray-50">
-                 <Loader2 className="h-10 w-10 animate-spin text-indigo-500" />
-             </div>
+            <div className="min-h-screen flex items-center justify-center bg-gray-50">
+                <Loader2 className="h-10 w-10 animate-spin text-indigo-500" />
+            </div>
         );
     }
 
-    // 8. UI 렌더링 - 닉네임 입력 화면
     if (!nickname) {
         return (
             <NicknameInput
@@ -211,7 +180,6 @@ export default function App() { // Next.js page 컴포넌트는 기본 내보내
         );
     }
 
-    // 9. UI 렌더링 - 체크리스트 화면
     return (
         <div className="min-h-screen bg-gray-50 p-4 sm:p-8 flex justify-center">
             <div className="w-full max-w-4xl bg-white shadow-xl rounded-2xl p-6 sm:p-8">
@@ -219,10 +187,13 @@ export default function App() { // Next.js page 컴포넌트는 기본 내보내
                     <div>
                         <h1 className="text-3xl font-bold text-gray-800">나의 업적 체크리스트</h1>
                         <p className="text-lg text-indigo-600 font-medium mt-1 flex items-center">
-                            <ArrowLeft className="h-4 w-4 mr-2 inline sm:hidden cursor-pointer" onClick={() => {
-                                localStorage.removeItem('checklist_nickname');
-                                setNickname('');
-                            }}/>
+                            <ArrowLeft
+                                className="h-4 w-4 mr-2 inline sm:hidden cursor-pointer"
+                                onClick={() => {
+                                    localStorage.removeItem('checklist_nickname');
+                                    setNickname('');
+                                }}
+                            />
                             {nickname}님의 기록
                         </p>
                     </div>
@@ -251,26 +222,17 @@ export default function App() { // Next.js page 컴포넌트는 기본 내보내
                     toggleCompletion={toggleCompletion}
                     isLoading={isLoading}
                     error={error}
-                    totalCount={allAchievements.length} // 전체 목록 길이 사용
+                    totalCount={allAchievements.length}
                     completedCount={progress.filter(a => a.is_completed).length}
                 />
-
-                {SUPABASE_URL && SUPABASE_URL.includes('YOUR_SUPABASE_PROJECT_URL') && (
-                    <div className="mt-8 p-4 bg-yellow-100 text-yellow-800 border-l-4 border-yellow-500 rounded-md">
-                        <p className="font-semibold">⚠️ Supabase 설정 필요</p>
-                        <p className="text-sm">`NEXT_PUBLIC_SUPABASE_URL`와 `NEXT_PUBLIC_SUPABASE_KEY`가 환경 변수 또는 코드에 설정되지 않았습니다. 실제 저장을 위해서는 값을 채워주세요.</p>
-                    </div>
-                )}
             </div>
         </div>
     );
 }
 
 // ====================================================================
-// 10. 보조 컴포넌트
+// 보조 컴포넌트
 // ====================================================================
-
-/** 닉네임 입력 화면 */
 const NicknameInput = ({ onNicknameSet }) => {
     const [input, setInput] = useState('');
     const [error, setError] = useState('');
@@ -318,7 +280,6 @@ const NicknameInput = ({ onNicknameSet }) => {
     );
 };
 
-/** 검색 및 필터링 컨트롤 */
 const Controls = React.memo(({ searchTerm, setSearchTerm, filter, setFilter }) => {
     const filters = [
         { key: 'all', label: '전체' },
@@ -330,19 +291,16 @@ const Controls = React.memo(({ searchTerm, setSearchTerm, filter, setFilter }) =
 
     return (
         <div className="mb-6 space-y-4 md:space-y-0 md:flex md:gap-4">
-            {/* 검색 입력란 */}
             <div className="relative flex-grow">
                 <input
                     type="text"
                     placeholder="업적 이름 또는 내용을 검색..."
                     onChange={(e) => debouncedSetSearchTerm(e.target.value)}
                     className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-xl focus:ring-indigo-500 focus:border-indigo-500 transition"
-                    aria-label="업적 검색"
                 />
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
             </div>
 
-            {/* 필터 버튼 그룹 */}
             <div className="flex bg-gray-100 rounded-xl p-1 shrink-0">
                 <Filter className="h-5 w-5 text-gray-500 my-auto ml-2 mr-1 hidden sm:block" />
                 {filters.map((f) => (
@@ -363,9 +321,7 @@ const Controls = React.memo(({ searchTerm, setSearchTerm, filter, setFilter }) =
     );
 });
 
-/** 체크리스트 목록 표시 */
 const Checklist = ({ list, toggleCompletion, isLoading, error, totalCount, completedCount }) => {
-
     if (isLoading) {
         return (
             <div className="flex justify-center items-center h-48">
@@ -389,7 +345,9 @@ const Checklist = ({ list, toggleCompletion, isLoading, error, totalCount, compl
     return (
         <div className="mt-6">
             <div className="mb-4 p-4 bg-indigo-50 rounded-xl border border-indigo-200">
-                <p className="text-lg font-semibold text-indigo-700">진행률: {completedCount} / {totalCount} ({completionRate}%)</p>
+                <p className="text-lg font-semibold text-indigo-700">
+                    진행률: {completedCount} / {totalCount} ({completionRate}%)
+                </p>
                 <div className="w-full bg-indigo-200 rounded-full h-2.5 mt-2">
                     <div
                         className="bg-indigo-600 h-2.5 rounded-full transition-all duration-500"
@@ -407,7 +365,11 @@ const Checklist = ({ list, toggleCompletion, isLoading, error, totalCount, compl
                     {list.map((item) => (
                         <li
                             key={item.id}
-                            className={`flex items-start p-4 rounded-xl transition duration-200 cursor-pointer border ${item.is_completed ? 'bg-green-50 border-green-200 shadow-sm' : 'bg-white border-gray-200 hover:border-indigo-300'}`}
+                            className={`flex items-start p-4 rounded-xl transition duration-200 cursor-pointer border ${
+                                item.is_completed
+                                    ? 'bg-green-50 border-green-200 shadow-sm'
+                                    : 'bg-white border-gray-200 hover:border-indigo-300'
+                            }`}
                             onClick={() => toggleCompletion(item.id, item.is_completed)}
                         >
                             <div className="flex-shrink-0 mr-4">
@@ -418,10 +380,18 @@ const Checklist = ({ list, toggleCompletion, isLoading, error, totalCount, compl
                                 )}
                             </div>
                             <div className="flex-grow">
-                                <h3 className={`text-base font-semibold ${item.is_completed ? 'text-gray-700 line-through' : 'text-gray-800'}`}>
+                                <h3
+                                    className={`text-base font-semibold ${
+                                        item.is_completed ? 'text-gray-700 line-through' : 'text-gray-800'
+                                    }`}
+                                >
                                     N{item.id}. {item.name}
                                 </h3>
-                                <p className={`text-sm mt-0.5 ${item.is_completed ? 'text-gray-500 line-through' : 'text-gray-600'}`}>
+                                <p
+                                    className={`text-sm mt-0.5 ${
+                                        item.is_completed ? 'text-gray-500 line-through' : 'text-gray-600'
+                                    }`}
+                                >
                                     {item.content}
                                 </p>
                             </div>
