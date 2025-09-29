@@ -229,7 +229,28 @@ export default function App() {
     }, [nickname, isMounted, loadFromLocalStorage]);
 
     // ----------------------------------------------------------------
-    // 6. 필터링 + 검색
+    // 6. 포인트 계산
+    // ----------------------------------------------------------------
+    const pointStats = useMemo(() => {
+        const totalPoints = progress.reduce((sum, item) => sum + (item.point || 0), 0);
+        
+        const completedPoints = progress.reduce((sum, item) => {
+            const pendingUpdate = pendingUpdates.get(item.id);
+            const isCompleted = pendingUpdate !== undefined ? pendingUpdate : item.is_completed;
+            return isCompleted ? sum + (item.point || 0) : sum;
+        }, 0);
+        
+        const remainingPoints = totalPoints - completedPoints;
+        
+        return {
+            total: totalPoints,
+            completed: completedPoints,
+            remaining: remainingPoints
+        };
+    }, [progress, pendingUpdates]);
+
+    // ----------------------------------------------------------------
+    // 7. 필터링 + 검색
     // ----------------------------------------------------------------
     const filteredAndSearchedList = useMemo(() => {
         let list = progress;
@@ -323,6 +344,7 @@ export default function App() {
                         const isCompleted = pendingUpdate !== undefined ? pendingUpdate : a.is_completed;
                         return isCompleted;
                     }).length}
+                    pointStats={pointStats}
                     pendingUpdates={pendingUpdates}
                     isSaving={batchUpdateMutation.isPending}
                     onSaveNow={saveBatchUpdates}
@@ -486,7 +508,7 @@ const ToggleAllModal = ({ onConfirm, onCancel, totalCount }) => {
     );
 };
 
-const Checklist = ({ list, toggleCompletion, isLoading, error, totalCount, completedCount, pendingUpdates, isSaving, onSaveNow }) => {
+const Checklist = ({ list, toggleCompletion, isLoading, error, totalCount, completedCount, pointStats, pendingUpdates, isSaving, onSaveNow }) => {
     if (isLoading) {
         return (
             <div className="flex justify-center items-center h-48">
@@ -511,9 +533,25 @@ const Checklist = ({ list, toggleCompletion, isLoading, error, totalCount, compl
         <div className="mt-6">
             <div className="mb-4 p-4 bg-indigo-50 rounded-xl border border-indigo-200">
                 <div className="flex justify-between items-center">
-                    <p className="text-lg font-semibold text-indigo-700">
-                        진행률: {completedCount} / {totalCount} ({completionRate}%)
-                    </p>
+                    <div>
+                        <p className="text-lg font-semibold text-indigo-700">
+                            진행률: {completedCount} / {totalCount} ({completionRate}%)
+                        </p>
+                        <div className="mt-2 flex flex-wrap gap-4 text-sm">
+                            <div className="flex items-center">
+                                <span className="text-gray-600 mr-1">총 포인트:</span>
+                                <span className="font-semibold text-indigo-700">{pointStats.total.toLocaleString()}P</span>
+                            </div>
+                            <div className="flex items-center">
+                                <span className="text-gray-600 mr-1">완료 포인트:</span>
+                                <span className="font-semibold text-green-600">{pointStats.completed.toLocaleString()}P</span>
+                            </div>
+                            <div className="flex items-center">
+                                <span className="text-gray-600 mr-1">남은 포인트:</span>
+                                <span className="font-semibold text-orange-600">{pointStats.remaining.toLocaleString()}P</span>
+                            </div>
+                        </div>
+                    </div>
                     {pendingUpdates.size > 0 && (
                         <div className="flex items-center space-x-2">
                             {isSaving ? (
@@ -573,20 +611,35 @@ const Checklist = ({ list, toggleCompletion, isLoading, error, totalCount, compl
                                     )}
                                 </div>
                                 <div className="flex-grow">
-                                    <h3
-                                        className={`text-base font-semibold ${
-                                            isCompleted ? 'text-gray-700 line-through' : 'text-gray-800'
-                                        }`}
-                                    >
-                                        N{item.id}. {item.name}
-                                    </h3>
-                                    <p
-                                        className={`text-sm mt-0.5 ${
-                                            isCompleted ? 'text-gray-500 line-through' : 'text-gray-600'
-                                        }`}
-                                    >
-                                        {item.content}
-                                    </p>
+                                    <div className="flex justify-between items-start">
+                                        <div className="flex-grow">
+                                            <h3
+                                                className={`text-base font-semibold ${
+                                                    isCompleted ? 'text-gray-700 line-through' : 'text-gray-800'
+                                                }`}
+                                            >
+                                                N{item.id}. {item.name}
+                                            </h3>
+                                            <p
+                                                className={`text-sm mt-0.5 ${
+                                                    isCompleted ? 'text-gray-500 line-through' : 'text-gray-600'
+                                                }`}
+                                            >
+                                                {item.content}
+                                            </p>
+                                        </div>
+                                        {item.point && (
+                                            <div className="ml-3 flex-shrink-0">
+                                                <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                                                    isCompleted 
+                                                        ? 'bg-green-100 text-green-800' 
+                                                        : 'bg-indigo-100 text-indigo-800'
+                                                }`}>
+                                                    {item.point}P
+                                                </span>
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
                             </li>
                         );

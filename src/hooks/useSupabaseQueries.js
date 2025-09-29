@@ -12,7 +12,7 @@ export const useAchievements = () => {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('achievements')
-        .select('id, name, content')
+        .select('id, name, content, point')
         .order('id', { ascending: true });
       
       if (error) throw error;
