@@ -2,14 +2,12 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Check, Square, Search, Filter, Loader2, LogOut, ArrowLeft } from 'lucide-react';
-import { createClient } from '@supabase/supabase-js';
+import { useAchievements, useUserProgress, useBatchUpdateProgress } from '../hooks/useSupabaseQueries';
 
 // ====================================================================
-// 1. Supabase 클라이언트 초기화
+// 1. 환경 변수 확인
 // ====================================================================
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const SUPABASE_KEY = process.env.NEXT_PUBLIC_SUPABASE_KEY;
-const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 // ====================================================================
 // 2. 디바운스 유틸리티
@@ -27,13 +25,15 @@ const debounce = (func, delay) => {
 // ====================================================================
 export default function App() {
     const [nickname, setNickname] = useState('');
-    const [allAchievements, setAllAchievements] = useState([]);
-    const [progress, setProgress] = useState([]);
-    const [isLoading, setIsLoading] = useState(false);
     const [filter, setFilter] = useState('all');
     const [searchTerm, setSearchTerm] = useState('');
-    const [error, setError] = useState(null);
     const [isMounted, setIsMounted] = useState(false);
+    const [pendingUpdates, setPendingUpdates] = useState(new Map()); // 배치 업데이트용
+
+    // React Query 훅들
+    const { data: allAchievements = [], isLoading: achievementsLoading, error: achievementsError } = useAchievements();
+    const { data: userProgress = [], isLoading: progressLoading, error: progressError } = useUserProgress(nickname);
+    const batchUpdateMutation = useBatchUpdateProgress();
 
     // 닉네임 로컬스토리지에서 불러오기
     useEffect(() => {
@@ -45,98 +45,154 @@ export default function App() {
     }, []);
 
     // ----------------------------------------------------------------
-    // 4. 데이터 로드 (업적 목록 + 사용자 진행 상황)
+    // 4. 데이터 병합 (React Query 데이터 사용)
     // ----------------------------------------------------------------
-    const fetchUserProgress = useCallback(async (currentNickname) => {
-        setIsLoading(true);
-        setError(null);
-
-        if (!currentNickname || !SUPABASE_URL?.startsWith('http')) {
-            setError("Supabase 설정이 필요합니다. 환경 변수를 확인해주세요.");
-            setIsLoading(false);
-            return;
+    const progress = useMemo(() => {
+        if (!allAchievements.length || !userProgress.length) {
+            return allAchievements.map(ach => ({
+                ...ach,
+                is_completed: false,
+                progress_id: null,
+            }));
         }
 
+        return allAchievements.map((ach) => {
+            const userStatus = userProgress.find((p) => p.achievement_id === ach.id);
+            return {
+                ...ach,
+                is_completed: userStatus ? userStatus.is_completed : false,
+                progress_id: userStatus ? userStatus.id : null,
+            };
+        });
+    }, [allAchievements, userProgress]);
+
+    // 로컬 스토리지에 변경사항 백업
+    const saveToLocalStorage = useCallback((updates) => {
         try {
-            // 1. 전체 업적 목록 가져오기
-            const { data: achievements, error: achError } = await supabase
-                .from('achievements')
-                .select('id, name, content')
-                .order('id', { ascending: true });
+            const backupKey = `pending_updates_${nickname}`;
+            localStorage.setItem(backupKey, JSON.stringify(Array.from(updates.entries())));
+            console.log('변경사항 로컬 백업 완료');
+        } catch (error) {
+            console.warn('로컬 백업 실패:', error);
+        }
+    }, [nickname]);
 
-            if (achError) throw achError;
-            setAllAchievements(achievements);
+    // 로컬 스토리지에서 변경사항 복원
+    const loadFromLocalStorage = useCallback(() => {
+        try {
+            const backupKey = `pending_updates_${nickname}`;
+            const backup = localStorage.getItem(backupKey);
+            if (backup) {
+                const updates = new Map(JSON.parse(backup));
+                setPendingUpdates(updates);
+                console.log('로컬 백업에서 변경사항 복원');
+                return updates;
+            }
+        } catch (error) {
+            console.warn('로컬 복원 실패:', error);
+        }
+        return new Map();
+    }, [nickname]);
 
-            // 2. 사용자 진행 상황 가져오기
-            const { data: userProgress, error: progError } = await supabase
-                .from('user_progress')
-                .select('id, achievement_id, is_completed')
-                .eq('nickname', currentNickname);
+    // 배치 업데이트 저장 함수
+    const saveBatchUpdates = useCallback(async () => {
+        if (pendingUpdates.size === 0 || !nickname) return;
 
-            if (progError) throw progError;
+        const updates = Array.from(pendingUpdates.entries()).map(([achievementId, isCompleted]) => ({
+            achievementId,
+            isCompleted,
+        }));
 
-            // 3. 병합
-            const mergedList = achievements.map((ach) => {
-                const userStatus = userProgress.find((p) => p.achievement_id === ach.id);
-                return {
-                    ...ach,
-                    is_completed: userStatus ? userStatus.is_completed : false,
-                    progress_id: userStatus ? userStatus.id : null,
-                };
-            });
-            setProgress(mergedList);
+        console.log(`배치 업데이트: ${updates.length}개 항목 저장 (요청 절약)`);
+        
+        try {
+            await batchUpdateMutation.mutateAsync({ nickname, updates });
+            setPendingUpdates(new Map());
+            
+            // 성공 시 로컬 백업 삭제
+            const backupKey = `pending_updates_${nickname}`;
+            localStorage.removeItem(backupKey);
+            
+            console.log('배치 업데이트 완료');
         } catch (err) {
-            console.error('Error fetching progress:', err);
-            setError(`데이터 로드 실패: ${err.message}`);
-        } finally {
-            setIsLoading(false);
+            console.error('배치 업데이트 실패:', err);
+            // 실패 시 로컬 백업 유지
         }
-    }, []);
+    }, [pendingUpdates, nickname, batchUpdateMutation]);
 
+    // 자동 저장 타이머 (3초 후 자동 저장)
     useEffect(() => {
-        if (nickname && isMounted) {
-            fetchUserProgress(nickname);
-        }
-    }, [nickname, fetchUserProgress, isMounted]);
+        if (pendingUpdates.size === 0) return;
+
+        const timer = setTimeout(() => {
+            saveBatchUpdates();
+        }, 3000);
+
+        return () => clearTimeout(timer);
+    }, [pendingUpdates, saveBatchUpdates]);
+
+    // 페이지 이탈 시 즉시 저장
+    useEffect(() => {
+        const handleBeforeUnload = (event) => {
+            if (pendingUpdates.size > 0) {
+                // 동기적으로 저장 시도
+                saveBatchUpdates();
+                
+                // 사용자에게 알림
+                event.preventDefault();
+                event.returnValue = '저장되지 않은 변경사항이 있습니다. 페이지를 떠나시겠습니까?';
+                return event.returnValue;
+            }
+        };
+
+        const handleVisibilityChange = () => {
+            if (document.visibilityState === 'hidden' && pendingUpdates.size > 0) {
+                // 탭이 숨겨질 때 저장
+                saveBatchUpdates();
+            }
+        };
+
+        window.addEventListener('beforeunload', handleBeforeUnload);
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+
+        return () => {
+            window.removeEventListener('beforeunload', handleBeforeUnload);
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
+        };
+    }, [pendingUpdates, saveBatchUpdates]);
 
     // ----------------------------------------------------------------
-    // 5. 진행 상황 토글 (Upsert 사용)
+    // 5. 진행 상황 토글 (배치 업데이트 방식)
     // ----------------------------------------------------------------
-    const toggleCompletion = useCallback(async (achievementId, currentStatus) => {
+    const toggleCompletion = useCallback((achievementId, currentStatus) => {
         const newStatus = !currentStatus;
-
-        // 로컬 상태 업데이트 (UX 개선)
-        setProgress(prev =>
-            prev.map(a => a.id === achievementId ? { ...a, is_completed: newStatus } : a)
-        );
 
         if (!nickname || !SUPABASE_URL?.startsWith('http')) {
             console.warn('Supabase 미설정. 로컬 상태만 변경됨.');
             return;
         }
 
-        try {
-            const { error: upsertError } = await supabase
-                .from('user_progress')
-                .upsert(
-                    {
-                        nickname,
-                        achievement_id: achievementId,
-                        is_completed: newStatus,
-                    },
-                    { onConflict: 'nickname,achievement_id' }
-                );
+        // 배치 업데이트 큐에 추가 (즉시 저장하지 않음)
+        setPendingUpdates(prev => {
+            const newMap = new Map(prev);
+            newMap.set(achievementId, newStatus);
+            
+            // 로컬 스토리지에 백업
+            saveToLocalStorage(newMap);
+            
+            return newMap;
+        });
+    }, [nickname, saveToLocalStorage]);
 
-            if (upsertError) throw upsertError;
-        } catch (err) {
-            console.error('Error updating progress:', err);
-            setError(`업데이트 실패: ${err.message}`);
-            // 실패 시 롤백
-            setProgress(prev =>
-                prev.map(a => a.id === achievementId ? { ...a, is_completed: currentStatus } : a)
-            );
+    // 페이지 로드 시 로컬 백업 복원
+    useEffect(() => {
+        if (nickname && isMounted) {
+            const restoredUpdates = loadFromLocalStorage();
+            if (restoredUpdates.size > 0) {
+                console.log(`${restoredUpdates.size}개 미저장 변경사항 복원됨`);
+            }
         }
-    }, [nickname]);
+    }, [nickname, isMounted, loadFromLocalStorage]);
 
     // ----------------------------------------------------------------
     // 6. 필터링 + 검색
@@ -157,6 +213,10 @@ export default function App() {
         }
         return list;
     }, [progress, filter, searchTerm]);
+
+    // 로딩 상태와 에러 처리
+    const isLoading = achievementsLoading || progressLoading;
+    const error = achievementsError || progressError;
 
     // ----------------------------------------------------------------
     // 7. UI 렌더링
@@ -223,7 +283,14 @@ export default function App() {
                     isLoading={isLoading}
                     error={error}
                     totalCount={allAchievements.length}
-                    completedCount={progress.filter(a => a.is_completed).length}
+                    completedCount={progress.filter(a => {
+                        const pendingUpdate = pendingUpdates.get(a.id);
+                        const isCompleted = pendingUpdate !== undefined ? pendingUpdate : a.is_completed;
+                        return isCompleted;
+                    }).length}
+                    pendingUpdates={pendingUpdates}
+                    isSaving={batchUpdateMutation.isPending}
+                    onSaveNow={saveBatchUpdates}
                 />
             </div>
         </div>
@@ -296,7 +363,7 @@ const Controls = React.memo(({ searchTerm, setSearchTerm, filter, setFilter }) =
                     type="text"
                     placeholder="업적 이름 또는 내용을 검색..."
                     onChange={(e) => debouncedSetSearchTerm(e.target.value)}
-                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-xl focus:ring-indigo-500 focus:border-indigo-500 transition"
+                    className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-xl focus:ring-indigo-500 focus:border-indigo-500 transition text-gray-900 placeholder-gray-500 bg-white shadow-sm"
                 />
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
             </div>
@@ -321,7 +388,7 @@ const Controls = React.memo(({ searchTerm, setSearchTerm, filter, setFilter }) =
     );
 });
 
-const Checklist = ({ list, toggleCompletion, isLoading, error, totalCount, completedCount }) => {
+const Checklist = ({ list, toggleCompletion, isLoading, error, totalCount, completedCount, pendingUpdates, isSaving, onSaveNow }) => {
     if (isLoading) {
         return (
             <div className="flex justify-center items-center h-48">
@@ -345,9 +412,33 @@ const Checklist = ({ list, toggleCompletion, isLoading, error, totalCount, compl
     return (
         <div className="mt-6">
             <div className="mb-4 p-4 bg-indigo-50 rounded-xl border border-indigo-200">
-                <p className="text-lg font-semibold text-indigo-700">
-                    진행률: {completedCount} / {totalCount} ({completionRate}%)
-                </p>
+                <div className="flex justify-between items-center">
+                    <p className="text-lg font-semibold text-indigo-700">
+                        진행률: {completedCount} / {totalCount} ({completionRate}%)
+                    </p>
+                    {pendingUpdates.size > 0 && (
+                        <div className="flex items-center space-x-2">
+                            {isSaving ? (
+                                <div className="flex items-center text-sm text-orange-600">
+                                    <Loader2 className="h-4 w-4 animate-spin mr-1" />
+                                    저장 중...
+                                </div>
+                            ) : (
+                                <div className="flex items-center space-x-2">
+                                    <span className="text-sm text-orange-600">
+                                        {pendingUpdates.size}개 변경사항 대기 중
+                                    </span>
+                                    <button
+                                        onClick={onSaveNow}
+                                        className="px-3 py-1 bg-orange-500 text-white text-sm rounded-lg hover:bg-orange-600 transition"
+                                    >
+                                        지금 저장
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </div>
                 <div className="w-full bg-indigo-200 rounded-full h-2.5 mt-2">
                     <div
                         className="bg-indigo-600 h-2.5 rounded-full transition-all duration-500"
@@ -362,41 +453,46 @@ const Checklist = ({ list, toggleCompletion, isLoading, error, totalCount, compl
                 </div>
             ) : (
                 <ul className="space-y-3">
-                    {list.map((item) => (
-                        <li
-                            key={item.id}
-                            className={`flex items-start p-4 rounded-xl transition duration-200 cursor-pointer border ${
-                                item.is_completed
-                                    ? 'bg-green-50 border-green-200 shadow-sm'
-                                    : 'bg-white border-gray-200 hover:border-indigo-300'
-                            }`}
-                            onClick={() => toggleCompletion(item.id, item.is_completed)}
-                        >
-                            <div className="flex-shrink-0 mr-4">
-                                {item.is_completed ? (
-                                    <Check className="h-6 w-6 text-green-600 mt-0.5" />
-                                ) : (
-                                    <Square className="h-6 w-6 text-gray-400 mt-0.5" />
-                                )}
-                            </div>
-                            <div className="flex-grow">
-                                <h3
-                                    className={`text-base font-semibold ${
-                                        item.is_completed ? 'text-gray-700 line-through' : 'text-gray-800'
-                                    }`}
-                                >
-                                    N{item.id}. {item.name}
-                                </h3>
-                                <p
-                                    className={`text-sm mt-0.5 ${
-                                        item.is_completed ? 'text-gray-500 line-through' : 'text-gray-600'
-                                    }`}
-                                >
-                                    {item.content}
-                                </p>
-                            </div>
-                        </li>
-                    ))}
+                    {list.map((item) => {
+                        const pendingUpdate = pendingUpdates.get(item.id);
+                        const isCompleted = pendingUpdate !== undefined ? pendingUpdate : item.is_completed;
+                        
+                        return (
+                            <li
+                                key={item.id}
+                                className={`flex items-start p-4 rounded-xl transition duration-200 cursor-pointer border ${
+                                    isCompleted
+                                        ? 'bg-green-50 border-green-200 shadow-sm'
+                                        : 'bg-white border-gray-200 hover:border-indigo-300'
+                                }`}
+                                onClick={() => toggleCompletion(item.id, item.is_completed)}
+                            >
+                                <div className="flex-shrink-0 mr-4">
+                                    {isCompleted ? (
+                                        <Check className="h-6 w-6 text-green-600 mt-0.5" />
+                                    ) : (
+                                        <Square className="h-6 w-6 text-gray-400 mt-0.5" />
+                                    )}
+                                </div>
+                                <div className="flex-grow">
+                                    <h3
+                                        className={`text-base font-semibold ${
+                                            isCompleted ? 'text-gray-700 line-through' : 'text-gray-800'
+                                        }`}
+                                    >
+                                        N{item.id}. {item.name}
+                                    </h3>
+                                    <p
+                                        className={`text-sm mt-0.5 ${
+                                            isCompleted ? 'text-gray-500 line-through' : 'text-gray-600'
+                                        }`}
+                                    >
+                                        {item.content}
+                                    </p>
+                                </div>
+                            </li>
+                        );
+                    })}
                 </ul>
             )}
         </div>
