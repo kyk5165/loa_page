@@ -7,7 +7,7 @@ import { useAchievements, useUserProgress, useBatchUpdateProgress } from '../hoo
 // ====================================================================
 // 1. 환경 변수 확인
 // ====================================================================
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8787';
 
 // ====================================================================
 // 2. 디바운스 유틸리티
@@ -176,8 +176,8 @@ export default function App() {
     const toggleCompletion = useCallback((achievementId, currentStatus) => {
         const newStatus = !currentStatus;
 
-        if (!nickname || !SUPABASE_URL?.startsWith('http')) {
-            console.warn('Supabase 미설정. 로컬 상태만 변경됨.');
+        if (!nickname || !API_URL?.startsWith('http')) {
+            console.warn('API 서버 미설정. 로컬 상태만 변경됨.');
             return;
         }
 
@@ -195,8 +195,8 @@ export default function App() {
 
     // 전체 토글 함수
     const toggleAllAchievements = useCallback(() => {
-        if (!nickname || !SUPABASE_URL?.startsWith('http')) {
-            console.warn('Supabase 미설정. 로컬 상태만 변경됨.');
+        if (!nickname || !API_URL?.startsWith('http')) {
+            console.warn('API 서버 미설정. 로컬 상태만 변경됨.');
             return;
         }
 
@@ -520,7 +520,7 @@ const Checklist = ({ list, toggleCompletion, isLoading, error, totalCount, compl
         return (
             <div className="p-4 bg-red-100 text-red-800 border-l-4 border-red-500 rounded-md mt-4">
                 <p className="font-semibold">에러 발생</p>
-                <p className="text-sm">{error}</p>
+                <p className="text-sm">{error.message || error.toString()}</p>
             </div>
         );
     }

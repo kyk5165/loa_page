@@ -1,22 +1,27 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { createClient } from '@supabase/supabase-js';
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const SUPABASE_KEY = process.env.NEXT_PUBLIC_SUPABASE_KEY;
-const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+// API 서버 URL (환경 변수에서 가져오거나 기본값 사용)
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || '';
 
 // 업적 목록 조회
 export const useAchievements = () => {
   return useQuery({
     queryKey: ['achievements'],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('achievements')
-        .select('id, name, content, point, discord_url')
-        .order('id', { ascending: true });
+      console.log('Fetching achievements from:', `${API_BASE_URL}/api/achievements`);
+      const response = await fetch(`${API_BASE_URL}/api/achievements`);
+      console.log('Response status:', response.status);
+      console.log('Response ok:', response.ok);
       
-      if (error) throw error;
-      return data;
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Response error:', errorText);
+        throw new Error(`Failed to fetch achievements: ${response.status} ${response.statusText}`);
+      }
+      
+      const result = await response.json();
+      console.log('Response data:', result);
+      return result;
     },
     staleTime: 60 * 60 * 1000, // 1시간간 fresh (업적 목록은 거의 변하지 않음)
     cacheTime: 2 * 60 * 60 * 1000, // 2시간간 캐시 유지
@@ -30,13 +35,12 @@ export const useUserProgress = (nickname) => {
     queryFn: async () => {
       if (!nickname) return [];
       
-      const { data, error } = await supabase
-        .from('user_progress')
-        .select('id, achievement_id, is_completed')
-        .eq('nickname', nickname);
-      
-      if (error) throw error;
-      return data;
+      const response = await fetch(`${API_BASE_URL}/api/user-progress?nickname=${encodeURIComponent(nickname)}`);
+      if (!response.ok) {
+        throw new Error('Failed to fetch user progress');
+      }
+      const result = await response.json();
+      return result;
     },
     enabled: !!nickname, // nickname이 있을 때만 실행
     staleTime: 5 * 60 * 1000, // 5분간 fresh (사용자 진행상황은 자주 변할 수 있음)
@@ -50,18 +54,23 @@ export const useBatchUpdateProgress = () => {
   
   return useMutation({
     mutationFn: async ({ nickname, updates }) => {
-      const updateData = updates.map(({ achievementId, isCompleted }) => ({
-        nickname,
-        achievement_id: achievementId,
-        is_completed: isCompleted,
-      }));
-
-      const { error } = await supabase
-        .from('user_progress')
-        .upsert(updateData, { onConflict: 'nickname,achievement_id' });
+      const response = await fetch(`${API_BASE_URL}/api/user-progress/batch`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          nickname,
+          updates,
+        }),
+      });
       
-      if (error) throw error;
-      return updateData;
+      if (!response.ok) {
+        throw new Error('Failed to update progress');
+      }
+      
+      const result = await response.json();
+      return result.result;
     },
     onSuccess: (data, variables) => {
       // 성공 시 userProgress만 refetch (achievements는 영향받지 않음)
