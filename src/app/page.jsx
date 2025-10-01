@@ -1,7 +1,8 @@
 'use client'; // Next.js 클라이언트 컴포넌트임을 알림
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Check, Square, Search, Filter, Loader2, LogOut, ArrowLeft, RotateCcw, AlertTriangle, MessageCircle } from 'lucide-react';
+import { Check, Square, Search, Filter, Loader2, LogOut, ArrowLeft, RotateCcw, AlertTriangle, MessageCircle, Ship } from 'lucide-react';
+import Link from 'next/link';
 import { useAchievements, useUserProgress, useBatchUpdateProgress } from '../hooks/useSupabaseQueries';
 
 // ====================================================================
@@ -298,7 +299,16 @@ export default function App() {
             <div className="w-full max-w-4xl bg-white shadow-xl rounded-2xl p-6 sm:p-8">
                 <header className="mb-8 border-b pb-4 flex justify-between items-center">
                     <div>
-                        <h1 className="text-3xl font-bold text-gray-800">나의 업적 체크리스트</h1>
+                        <div className="flex items-center gap-4 mb-2">
+                            <h1 className="text-3xl font-bold text-gray-800">나의 업적 체크리스트</h1>
+                            <Link 
+                                href="/ship-calculator"
+                                className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
+                            >
+                                <Ship className="w-4 h-4" />
+                                선박 계산기
+                            </Link>
+                        </div>
                         <p className="text-lg text-indigo-600 font-medium mt-1 flex items-center">
                             <ArrowLeft
                                 className="h-4 w-4 mr-2 inline sm:hidden cursor-pointer"
