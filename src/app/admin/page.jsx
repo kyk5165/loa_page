@@ -305,7 +305,7 @@ const CreateAchievementForm = ({ adminKey, onClose }) => {
                             type="text"
                             value={formData.name}
                             onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 text-gray-900"
+                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 text-gray-900 bg-white"
                             placeholder="업적 이름"
                         />
                     </div>
@@ -316,7 +316,7 @@ const CreateAchievementForm = ({ adminKey, onClose }) => {
                         <select
                             value={formData.point}
                             onChange={(e) => setFormData({ ...formData, point: Number(e.target.value) })}
-                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 text-gray-900 bg-white"
+                            className="w-full h-[42px] px-4 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 text-gray-900 bg-white cursor-pointer"
                         >
                             <option value={20}>20P</option>
                             <option value={30}>30P</option>
@@ -332,7 +332,7 @@ const CreateAchievementForm = ({ adminKey, onClose }) => {
                     <textarea
                         value={formData.content}
                         onChange={(e) => setFormData({ ...formData, content: e.target.value })}
-                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 text-gray-900"
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 text-gray-900 bg-white"
                         placeholder="업적 달성 조건 또는 설명"
                         rows={3}
                     />
@@ -346,7 +346,7 @@ const CreateAchievementForm = ({ adminKey, onClose }) => {
                         type="text"
                         value={formData.discord_url}
                         onChange={(e) => setFormData({ ...formData, discord_url: e.target.value })}
-                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 text-gray-900"
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 text-gray-900 bg-white"
                         placeholder="예: 1234567890/1234567890"
                     />
                 </div>
