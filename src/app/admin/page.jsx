@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, LogOut, Plus, Pencil, Trash2, Search, Loader2, AlertTriangle, X } from 'lucide-react';
+import { ArrowLeft, LogOut, Plus, Pencil, Trash2, Search, Loader2, AlertTriangle, X, Lock } from 'lucide-react';
 import { useAchievements, useCreateAchievement, useUpdateAchievement, useDeleteAchievement } from '../../hooks/useSupabaseQueries';
 
 // ====================================================================
@@ -40,22 +40,53 @@ export default function AdminPage() {
 const PasswordScreen = ({ onAuthenticate }) => {
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
+    const [isLoading, setIsLoading] = useState(false);
 
-    const handleSubmit = (e) => {
+    const handleSubmit = useCallback(async (e) => {
         e.preventDefault();
         if (!password.trim()) {
             setError('비밀번호를 입력해주세요.');
             return;
         }
+
         setError('');
-        onAuthenticate(password.trim());
-    };
+        setIsLoading(true);
+
+        try {
+            const response = await fetch('/api/admin/verify', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${password.trim()}`,
+                },
+            });
+
+            if (response.ok) {
+                onAuthenticate(password.trim());
+            } else if (response.status === 403) {
+                setError('비밀번호가 올바르지 않습니다.');
+            } else if (response.status === 401) {
+                setError('인증 정보가 누락되었습니다.');
+            } else {
+                setError('서버 오류가 발생했습니다. 다시 시도해주세요.');
+            }
+        } catch (err) {
+            setError('네트워크 오류가 발생했습니다. 다시 시도해주세요.');
+        } finally {
+            setIsLoading(false);
+        }
+    }, [password, onAuthenticate]);
 
     return (
         <div className="min-h-screen flex items-center justify-center bg-gray-900 p-4">
             <form onSubmit={handleSubmit} className="bg-white p-8 rounded-xl shadow-2xl w-full max-w-sm">
-                <h2 className="text-2xl font-bold mb-6 text-gray-800">관리자 인증</h2>
-                <p className="text-sm text-gray-500 mb-6">관리자 비밀번호를 입력하세요.</p>
+                <div className="flex items-center justify-center mb-6">
+                    <div className="w-12 h-12 bg-indigo-100 rounded-full flex items-center justify-center">
+                        <Lock className="h-6 w-6 text-indigo-600" />
+                    </div>
+                </div>
+                <h2 className="text-2xl font-bold mb-2 text-gray-800 text-center">관리자 인증</h2>
+                <p className="text-sm text-gray-500 mb-6 text-center">관리자 비밀번호를 입력하세요.</p>
 
                 <div className="mb-4">
                     <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">
@@ -67,16 +98,25 @@ const PasswordScreen = ({ onAuthenticate }) => {
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
                         placeholder="관리자 비밀번호"
-                        className={`w-full px-4 py-2 border rounded-lg focus:ring-indigo-500 focus:border-indigo-500 transition text-gray-900 placeholder-gray-500 ${error ? 'border-red-500' : 'border-gray-300'}`}
+                        disabled={isLoading}
+                        className={`w-full px-4 py-2 border rounded-lg focus:ring-indigo-500 focus:border-indigo-500 transition text-gray-900 placeholder-gray-500 disabled:bg-gray-100 disabled:cursor-not-allowed ${error ? 'border-red-500' : 'border-gray-300'}`}
                     />
                     {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
                 </div>
 
                 <button
                     type="submit"
-                    className="w-full bg-indigo-600 text-white py-2 rounded-lg font-semibold hover:bg-indigo-700 transition duration-300 shadow-md"
+                    disabled={isLoading}
+                    className="w-full bg-indigo-600 text-white py-2 rounded-lg font-semibold hover:bg-indigo-700 transition duration-300 shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                    로그인
+                    {isLoading ? (
+                        <span className="flex items-center justify-center">
+                            <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                            확인 중...
+                        </span>
+                    ) : (
+                        '로그인'
+                    )}
                 </button>
 
                 <Link
