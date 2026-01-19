@@ -76,14 +76,14 @@ export default function App() {
         });
     }, [allAchievements, userProgress]);
 
-    // 활성 업적 (point > 0) - 통계 계산용
+    // 활성 업적 (is_legacy === false) - 통계 계산용
     const activeProgress = useMemo(() => {
-        return progress.filter(ach => ach.point > 0);
+        return progress.filter(ach => !ach.is_legacy);
     }, [progress]);
 
-    // 유산 업적 (point === 0)
+    // 유산 업적 (is_legacy === true)
     const legacyProgress = useMemo(() => {
-        return progress.filter(ach => ach.point === 0);
+        return progress.filter(ach => ach.is_legacy);
     }, [progress]);
 
     // 로컬 스토리지에 변경사항 백업
@@ -262,8 +262,8 @@ export default function App() {
     // 7. 필터링 + 검색
     // ----------------------------------------------------------------
     const filteredAndSearchedList = useMemo(() => {
-        // 유산 필터: point === 0인 업적만 표시
-        // 그 외 필터: point > 0인 업적만 표시
+        // 유산 필터: is_legacy === true인 업적만 표시
+        // 그 외 필터: is_legacy === false인 업적만 표시
         let list = filter === 'legacy' ? legacyProgress : activeProgress;
 
         if (filter === 'completed') {

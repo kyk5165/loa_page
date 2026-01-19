@@ -9,7 +9,16 @@
       "Bash(git commit -m \"$\\(cat <<''EOF''\nfix: Next.js 보안 취약점 해결을 위한 업데이트 \\(15.5.4 → 16.1.3\\)\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
       "Bash(git push:*)",
       "Bash(dir:*)",
-      "Bash(npm run lint)"
+      "Bash(npm run lint)",
+      "Bash(git commit:*)",
+      "mcp__supabase__list_tables",
+      "mcp__supabase__list_migrations",
+      "mcp__supabase__list_extensions",
+      "mcp__supabase__get_project_url"
     ]
-  }
+  },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "supabase"
+  ]
 }

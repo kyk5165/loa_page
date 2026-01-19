@@ -2,7 +2,7 @@
 
 import React, { useState, useMemo } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, LogOut, Plus, Pencil, Trash2, Search, Loader2, AlertTriangle, X } from 'lucide-react';
+import { ArrowLeft, LogOut, Plus, Pencil, Trash2, Search, Loader2, AlertTriangle, X, RefreshCw } from 'lucide-react';
 import { useAchievements, useCreateAchievement, useUpdateAchievement, useDeleteAchievement } from '../../hooks/useSupabaseQueries';
 
 // ====================================================================
@@ -98,8 +98,38 @@ const AdminPanel = ({ adminKey, onLogout }) => {
     const [editingAchievement, setEditingAchievement] = useState(null);
     const [deletingAchievement, setDeletingAchievement] = useState(null);
     const [showCreateForm, setShowCreateForm] = useState(false);
+    const [isClearingCache, setIsClearingCache] = useState(false);
+    const [cacheMessage, setCacheMessage] = useState('');
 
-    const { data: achievements = [], isLoading, error } = useAchievements();
+    const { data: achievements = [], isLoading, error, refetch } = useAchievements();
+
+    const handleClearCache = async () => {
+        setIsClearingCache(true);
+        setCacheMessage('');
+        try {
+            const response = await fetch('/api/cache/clear-all', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${adminKey}`,
+                },
+            });
+            const data = await response.json();
+            if (data.success) {
+                setCacheMessage('캐시가 클리어되었습니다.');
+                // 데이터 새로고침
+                refetch();
+            } else {
+                setCacheMessage('캐시 클리어 실패');
+            }
+        } catch (err) {
+            setCacheMessage('캐시 클리어 중 오류 발생');
+        } finally {
+            setIsClearingCache(false);
+            // 3초 후 메시지 숨기기
+            setTimeout(() => setCacheMessage(''), 3000);
+        }
+    };
 
     const filteredAchievements = useMemo(() => {
         if (!searchTerm) return achievements;
@@ -138,8 +168,8 @@ const AdminPanel = ({ adminKey, onLogout }) => {
                     </div>
                 </header>
 
-                {/* 새 업적 추가 버튼 */}
-                <div className="mb-6">
+                {/* 새 업적 추가 버튼 & 캐시 클리어 버튼 */}
+                <div className="mb-6 flex items-center gap-3 flex-wrap">
                     <button
                         onClick={() => setShowCreateForm(!showCreateForm)}
                         className="flex items-center px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition font-medium"
@@ -147,6 +177,17 @@ const AdminPanel = ({ adminKey, onLogout }) => {
                         <Plus className="h-4 w-4 mr-2" />
                         새 업적 추가
                     </button>
+                    <button
+                        onClick={handleClearCache}
+                        disabled={isClearingCache}
+                        className="flex items-center px-4 py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition font-medium disabled:opacity-50"
+                    >
+                        <RefreshCw className={`h-4 w-4 mr-2 ${isClearingCache ? 'animate-spin' : ''}`} />
+                        {isClearingCache ? '클리어 중...' : '캐시 클리어'}
+                    </button>
+                    {cacheMessage && (
+                        <span className="text-sm text-green-600 font-medium">{cacheMessage}</span>
+                    )}
                 </div>
 
                 {/* 생성 폼 */}
@@ -209,8 +250,9 @@ const CreateAchievementForm = ({ adminKey, onClose }) => {
     const [formData, setFormData] = useState({
         name: '',
         content: '',
-        point: 0,
+        point: 20,
         discord_url: '',
+        is_legacy: false,
     });
     const [error, setError] = useState('');
 
@@ -237,9 +279,10 @@ const CreateAchievementForm = ({ adminKey, onClose }) => {
                     content: formData.content.trim(),
                     point: Number(formData.point) || 0,
                     discord_url: formData.discord_url.trim() || null,
+                    is_legacy: formData.is_legacy,
                 },
             });
-            setFormData({ name: '', content: '', point: 0, discord_url: '' });
+            setFormData({ name: '', content: '', point: 20, discord_url: '', is_legacy: false });
             onClose();
         } catch (err) {
             setError(err.message || '업적 생성에 실패했습니다.');
@@ -310,6 +353,19 @@ const CreateAchievementForm = ({ adminKey, onClose }) => {
                         className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 text-gray-900"
                         placeholder="예: 1234567890/1234567890"
                     />
+                </div>
+
+                <div className="flex items-center">
+                    <input
+                        type="checkbox"
+                        id="create-is-legacy"
+                        checked={formData.is_legacy}
+                        onChange={(e) => setFormData({ ...formData, is_legacy: e.target.checked })}
+                        className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
+                    />
+                    <label htmlFor="create-is-legacy" className="ml-2 block text-sm text-gray-700">
+                        레거시 업적 (더 이상 달성 불가능하거나 삭제된 컨텐츠)
+                    </label>
                 </div>
 
                 {error && (
@@ -385,6 +441,7 @@ const AchievementTable = ({ achievements, isLoading, error, onEdit, onDelete }) 
                         <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">이름</th>
                         <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">내용</th>
                         <th className="px-4 py-3 text-center text-sm font-semibold text-gray-700">포인트</th>
+                        <th className="px-4 py-3 text-center text-sm font-semibold text-gray-700">상태</th>
                         <th className="px-4 py-3 text-center text-sm font-semibold text-gray-700">액션</th>
                     </tr>
                 </thead>
@@ -404,6 +461,17 @@ const AchievementTable = ({ achievements, isLoading, error, onEdit, onDelete }) 
                                 }`}>
                                     {achievement.point}P
                                 </span>
+                            </td>
+                            <td className="px-4 py-3 text-center">
+                                {achievement.is_legacy ? (
+                                    <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-800">
+                                        레거시
+                                    </span>
+                                ) : (
+                                    <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                        활성
+                                    </span>
+                                )}
                             </td>
                             <td className="px-4 py-3 text-center">
                                 <div className="flex justify-center gap-2">
@@ -443,6 +511,7 @@ const EditModal = ({ achievement, adminKey, onClose }) => {
         content: achievement.content,
         point: achievement.point,
         discord_url: achievement.discord_url || '',
+        is_legacy: achievement.is_legacy || false,
     });
     const [error, setError] = useState('');
 
@@ -470,6 +539,7 @@ const EditModal = ({ achievement, adminKey, onClose }) => {
                     content: formData.content.trim(),
                     point: Number(formData.point) || 0,
                     discord_url: formData.discord_url.trim() || null,
+                    is_legacy: formData.is_legacy,
                 },
             });
             onClose();
@@ -539,6 +609,19 @@ const EditModal = ({ achievement, adminKey, onClose }) => {
                             className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 text-gray-900"
                             placeholder="예: 1234567890/1234567890"
                         />
+                    </div>
+
+                    <div className="flex items-center">
+                        <input
+                            type="checkbox"
+                            id="edit-is-legacy"
+                            checked={formData.is_legacy}
+                            onChange={(e) => setFormData({ ...formData, is_legacy: e.target.checked })}
+                            className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
+                        />
+                        <label htmlFor="edit-is-legacy" className="ml-2 block text-sm text-gray-700">
+                            레거시 업적 (더 이상 달성 불가능하거나 삭제된 컨텐츠)
+                        </label>
                     </div>
 
                     {error && (
