@@ -313,13 +313,15 @@ const CreateAchievementForm = ({ adminKey, onClose }) => {
                         <label className="block text-sm font-medium text-gray-700 mb-1">
                             포인트
                         </label>
-                        <input
-                            type="number"
+                        <select
                             value={formData.point}
-                            onChange={(e) => setFormData({ ...formData, point: e.target.value })}
-                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 text-gray-900"
-                            placeholder="0"
-                        />
+                            onChange={(e) => setFormData({ ...formData, point: Number(e.target.value) })}
+                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 text-gray-900 bg-white"
+                        >
+                            <option value={20}>20P</option>
+                            <option value={30}>30P</option>
+                            <option value={50}>50P</option>
+                        </select>
                     </div>
                 </div>
 
@@ -584,12 +586,15 @@ const EditModal = ({ achievement, adminKey, onClose }) => {
                         <label className="block text-sm font-medium text-gray-700 mb-1">
                             포인트
                         </label>
-                        <input
-                            type="number"
+                        <select
                             value={formData.point}
-                            onChange={(e) => setFormData({ ...formData, point: e.target.value })}
-                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 text-gray-900"
-                        />
+                            onChange={(e) => setFormData({ ...formData, point: Number(e.target.value) })}
+                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 text-gray-900 bg-white"
+                        >
+                            <option value={20}>20P</option>
+                            <option value={30}>30P</option>
+                            <option value={50}>50P</option>
+                        </select>
                     </div>
 
                     <div>
