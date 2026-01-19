@@ -51,7 +51,7 @@ export const useUserProgress = (nickname) => {
 // 배치 업데이트 뮤테이션
 export const useBatchUpdateProgress = () => {
   const queryClient = useQueryClient();
-  
+
   return useMutation({
     mutationFn: async ({ nickname, updates }) => {
       const response = await fetch(`${API_BASE_URL}/api/user-progress/batch`, {
@@ -64,11 +64,11 @@ export const useBatchUpdateProgress = () => {
           updates,
         }),
       });
-      
+
       if (!response.ok) {
         throw new Error('Failed to update progress');
       }
-      
+
       const result = await response.json();
       return result.result;
     },
@@ -78,6 +78,92 @@ export const useBatchUpdateProgress = () => {
         queryKey: ['userProgress', variables.nickname],
         exact: true
       });
+    },
+  });
+};
+
+// ====================================================================
+// 관리자용 뮤테이션
+// ====================================================================
+
+// 업적 생성
+export const useCreateAchievement = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ adminKey, achievement }) => {
+      const response = await fetch(`${API_BASE_URL}/api/admin/achievements`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${adminKey}`,
+        },
+        body: JSON.stringify(achievement),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `Failed to create achievement: ${response.status}`);
+      }
+
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['achievements'] });
+    },
+  });
+};
+
+// 업적 수정
+export const useUpdateAchievement = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ adminKey, id, updates }) => {
+      const response = await fetch(`${API_BASE_URL}/api/admin/achievements/${id}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${adminKey}`,
+        },
+        body: JSON.stringify(updates),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `Failed to update achievement: ${response.status}`);
+      }
+
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['achievements'] });
+    },
+  });
+};
+
+// 업적 삭제
+export const useDeleteAchievement = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ adminKey, id }) => {
+      const response = await fetch(`${API_BASE_URL}/api/admin/achievements/${id}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${adminKey}`,
+        },
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `Failed to delete achievement: ${response.status}`);
+      }
+
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['achievements'] });
     },
   });
 };
