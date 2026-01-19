@@ -4,6 +4,7 @@ import React, { useState, useMemo, useCallback } from 'react';
 import Link from 'next/link';
 import { ArrowLeft, LogOut, Plus, Pencil, Trash2, Search, Loader2, AlertTriangle, X, Lock } from 'lucide-react';
 import { useAchievements, useCreateAchievement, useUpdateAchievement, useDeleteAchievement } from '../../hooks/useSupabaseQueries';
+import { verifyAdminKey } from '../../lib/api';
 
 // ====================================================================
 // 메인 관리자 페이지
@@ -53,19 +54,13 @@ const PasswordScreen = ({ onAuthenticate }) => {
         setIsLoading(true);
 
         try {
-            const response = await fetch('/api/admin/verify', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${password.trim()}`,
-                },
-            });
+            const { valid, status } = await verifyAdminKey(password.trim());
 
-            if (response.ok) {
+            if (valid) {
                 onAuthenticate(password.trim());
-            } else if (response.status === 403) {
+            } else if (status === 403) {
                 setError('비밀번호가 올바르지 않습니다.');
-            } else if (response.status === 401) {
+            } else if (status === 401) {
                 setError('인증 정보가 누락되었습니다.');
             } else {
                 setError('서버 오류가 발생했습니다. 다시 시도해주세요.');

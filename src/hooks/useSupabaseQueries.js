@@ -1,167 +1,105 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import {
+  fetchAchievements,
+  fetchUserProgress,
+  batchUpdateProgress,
+  createAchievement,
+  updateAchievement,
+  deleteAchievement,
+} from '../lib/api';
 
-// API 서버 URL (환경 변수에서 가져오거나 기본값 사용)
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || '';
+// ====================================================================
+// 업적 조회 훅
+// ====================================================================
 
-// 업적 목록 조회
+/**
+ * 전체 업적 목록 조회 훅
+ */
 export const useAchievements = () => {
   return useQuery({
     queryKey: ['achievements'],
-    queryFn: async () => {
-      console.log('Fetching achievements from:', `${API_BASE_URL}/api/achievements`);
-      const response = await fetch(`${API_BASE_URL}/api/achievements`);
-      console.log('Response status:', response.status);
-      console.log('Response ok:', response.ok);
-      
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('Response error:', errorText);
-        throw new Error(`Failed to fetch achievements: ${response.status} ${response.statusText}`);
-      }
-      
-      const result = await response.json();
-      console.log('Response data:', result);
-      return result;
-    },
-    staleTime: 60 * 60 * 1000, // 1시간간 fresh (업적 목록은 거의 변하지 않음)
-    cacheTime: 2 * 60 * 60 * 1000, // 2시간간 캐시 유지
+    queryFn: fetchAchievements,
+    staleTime: 60 * 60 * 1000, // 1시간 fresh (업적 목록은 거의 변하지 않음)
+    cacheTime: 2 * 60 * 60 * 1000, // 2시간 캐시 유지
   });
 };
 
-// 사용자 진행 상황 조회
+// ====================================================================
+// 사용자 진행 상황 훅
+// ====================================================================
+
+/**
+ * 사용자 진행 상황 조회 훅
+ * @param {string} nickname - 사용자 닉네임
+ */
 export const useUserProgress = (nickname) => {
   return useQuery({
     queryKey: ['userProgress', nickname],
-    queryFn: async () => {
-      if (!nickname) return [];
-      
-      const response = await fetch(`${API_BASE_URL}/api/user-progress?nickname=${encodeURIComponent(nickname)}`);
-      if (!response.ok) {
-        throw new Error('Failed to fetch user progress');
-      }
-      const result = await response.json();
-      return result;
-    },
+    queryFn: () => fetchUserProgress(nickname),
     enabled: !!nickname, // nickname이 있을 때만 실행
-    staleTime: 5 * 60 * 1000, // 5분간 fresh (사용자 진행상황은 자주 변할 수 있음)
-    cacheTime: 10 * 60 * 1000, // 10분간 캐시 유지
+    staleTime: 5 * 60 * 1000, // 5분 fresh
+    cacheTime: 10 * 60 * 1000, // 10분 캐시 유지
   });
 };
 
-// 배치 업데이트 뮤테이션
+/**
+ * 배치 업데이트 뮤테이션 훅
+ */
 export const useBatchUpdateProgress = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ nickname, updates }) => {
-      const response = await fetch(`${API_BASE_URL}/api/user-progress/batch`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          nickname,
-          updates,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to update progress');
-      }
-
-      const result = await response.json();
-      return result.result;
-    },
+    mutationFn: ({ nickname, updates }) => batchUpdateProgress(nickname, updates),
     onSuccess: (data, variables) => {
       // 성공 시 userProgress만 refetch (achievements는 영향받지 않음)
       queryClient.refetchQueries({
         queryKey: ['userProgress', variables.nickname],
-        exact: true
+        exact: true,
       });
     },
   });
 };
 
 // ====================================================================
-// 관리자용 뮤테이션
+// 관리자용 뮤테이션 훅
 // ====================================================================
 
-// 업적 생성
+/**
+ * 업적 생성 뮤테이션 훅
+ */
 export const useCreateAchievement = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ adminKey, achievement }) => {
-      const response = await fetch(`${API_BASE_URL}/api/admin/achievements`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${adminKey}`,
-        },
-        body: JSON.stringify(achievement),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || `Failed to create achievement: ${response.status}`);
-      }
-
-      return response.json();
-    },
+    mutationFn: ({ adminKey, achievement }) => createAchievement(adminKey, achievement),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['achievements'] });
     },
   });
 };
 
-// 업적 수정
+/**
+ * 업적 수정 뮤테이션 훅
+ */
 export const useUpdateAchievement = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ adminKey, id, updates }) => {
-      const response = await fetch(`${API_BASE_URL}/api/admin/achievements/${id}`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${adminKey}`,
-        },
-        body: JSON.stringify(updates),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || `Failed to update achievement: ${response.status}`);
-      }
-
-      return response.json();
-    },
+    mutationFn: ({ adminKey, id, updates }) => updateAchievement(adminKey, id, updates),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['achievements'] });
     },
   });
 };
 
-// 업적 삭제
+/**
+ * 업적 삭제 뮤테이션 훅
+ */
 export const useDeleteAchievement = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ adminKey, id }) => {
-      const response = await fetch(`${API_BASE_URL}/api/admin/achievements/${id}`, {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${adminKey}`,
-        },
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || `Failed to delete achievement: ${response.status}`);
-      }
-
-      return response.json();
-    },
+    mutationFn: ({ adminKey, id }) => deleteAchievement(adminKey, id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['achievements'] });
     },
