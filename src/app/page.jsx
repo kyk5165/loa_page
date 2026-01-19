@@ -76,6 +76,16 @@ export default function App() {
         });
     }, [allAchievements, userProgress]);
 
+    // 활성 업적 (point > 0) - 통계 계산용
+    const activeProgress = useMemo(() => {
+        return progress.filter(ach => ach.point > 0);
+    }, [progress]);
+
+    // 유산 업적 (point === 0)
+    const legacyProgress = useMemo(() => {
+        return progress.filter(ach => ach.point === 0);
+    }, [progress]);
+
     // 로컬 스토리지에 변경사항 백업
     const saveToLocalStorage = useCallback((updates) => {
         try {
@@ -194,28 +204,28 @@ export default function App() {
         });
     }, [nickname, saveToLocalStorage]);
 
-    // 전체 토글 함수
+    // 전체 토글 함수 (활성 업적만)
     const toggleAllAchievements = useCallback(() => {
         if (!nickname || !API_URL?.startsWith('http')) {
             console.warn('API 서버 미설정. 로컬 상태만 변경됨.');
             return;
         }
 
-        // 현재 진행상황을 기반으로 전체 반전
+        // 현재 진행상황을 기반으로 전체 반전 (활성 업적만)
         const newUpdates = new Map();
-        progress.forEach(item => {
+        activeProgress.forEach(item => {
             const pendingUpdate = pendingUpdates.get(item.id);
             const currentStatus = pendingUpdate !== undefined ? pendingUpdate : item.is_completed;
             newUpdates.set(item.id, !currentStatus);
         });
 
         setPendingUpdates(newUpdates);
-        
+
         // 로컬 스토리지에 백업
         saveToLocalStorage(newUpdates);
-        
-        console.log(`전체 ${progress.length}개 업적 상태 반전`);
-    }, [nickname, progress, pendingUpdates, saveToLocalStorage]);
+
+        console.log(`전체 ${activeProgress.length}개 업적 상태 반전`);
+    }, [nickname, activeProgress, pendingUpdates, saveToLocalStorage]);
 
     // 페이지 로드 시 로컬 백업 복원
     useEffect(() => {
@@ -228,36 +238,41 @@ export default function App() {
     }, [nickname, isMounted, loadFromLocalStorage]);
 
     // ----------------------------------------------------------------
-    // 6. 포인트 계산
+    // 6. 포인트 계산 (활성 업적만)
     // ----------------------------------------------------------------
     const pointStats = useMemo(() => {
-        const totalPoints = progress.reduce((sum, item) => sum + (item.point || 0), 0);
-        
-        const completedPoints = progress.reduce((sum, item) => {
+        const totalPoints = activeProgress.reduce((sum, item) => sum + (item.point || 0), 0);
+
+        const completedPoints = activeProgress.reduce((sum, item) => {
             const pendingUpdate = pendingUpdates.get(item.id);
             const isCompleted = pendingUpdate !== undefined ? pendingUpdate : item.is_completed;
             return isCompleted ? sum + (item.point || 0) : sum;
         }, 0);
-        
+
         const remainingPoints = totalPoints - completedPoints;
-        
+
         return {
             total: totalPoints,
             completed: completedPoints,
             remaining: remainingPoints
         };
-    }, [progress, pendingUpdates]);
+    }, [activeProgress, pendingUpdates]);
 
     // ----------------------------------------------------------------
     // 7. 필터링 + 검색
     // ----------------------------------------------------------------
     const filteredAndSearchedList = useMemo(() => {
-        let list = progress;
+        // 유산 필터: point === 0인 업적만 표시
+        // 그 외 필터: point > 0인 업적만 표시
+        let list = filter === 'legacy' ? legacyProgress : activeProgress;
+
         if (filter === 'completed') {
             list = list.filter(item => item.is_completed);
         } else if (filter === 'incomplete') {
             list = list.filter(item => !item.is_completed);
         }
+        // 'legacy' 필터는 추가 필터링 없이 전체 유산 업적 표시
+
         if (searchTerm) {
             const term = searchTerm.toLowerCase();
             list = list.filter(item =>
@@ -266,7 +281,7 @@ export default function App() {
             );
         }
         return list;
-    }, [progress, filter, searchTerm]);
+    }, [activeProgress, legacyProgress, filter, searchTerm]);
 
     // 로딩 상태와 에러 처리
     const isLoading = achievementsLoading || progressLoading;
@@ -346,8 +361,8 @@ export default function App() {
                     toggleCompletion={toggleCompletion}
                     isLoading={isLoading}
                     error={error}
-                    totalCount={allAchievements.length}
-                    completedCount={progress.filter(a => {
+                    totalCount={activeProgress.length}
+                    completedCount={activeProgress.filter(a => {
                         const pendingUpdate = pendingUpdates.get(a.id);
                         const isCompleted = pendingUpdate !== undefined ? pendingUpdate : a.is_completed;
                         return isCompleted;
@@ -356,6 +371,8 @@ export default function App() {
                     pendingUpdates={pendingUpdates}
                     isSaving={batchUpdateMutation.isPending}
                     onSaveNow={saveBatchUpdates}
+                    isLegacyView={filter === 'legacy'}
+                    legacyCount={legacyProgress.length}
                 />
 
                 {/* 전체 토글 경고 모달 */}
@@ -366,7 +383,7 @@ export default function App() {
                             setShowToggleAllModal(false);
                         }}
                         onCancel={() => setShowToggleAllModal(false)}
-                        totalCount={progress.length}
+                        totalCount={activeProgress.length}
                     />
                 )}
             </div>
@@ -429,6 +446,7 @@ const Controls = React.memo(({ searchTerm, setSearchTerm, filter, setFilter, onT
         { key: 'all', label: '전체' },
         { key: 'completed', label: '완료' },
         { key: 'incomplete', label: '미완료' },
+        { key: 'legacy', label: '유산' },
     ];
 
     const debouncedSetSearchTerm = useMemo(() => debounce(setSearchTerm, 300), [setSearchTerm]);
@@ -516,7 +534,7 @@ const ToggleAllModal = ({ onConfirm, onCancel, totalCount }) => {
     );
 };
 
-const Checklist = ({ list, toggleCompletion, isLoading, error, totalCount, completedCount, pointStats, pendingUpdates, isSaving, onSaveNow }) => {
+const Checklist = ({ list, toggleCompletion, isLoading, error, totalCount, completedCount, pointStats, pendingUpdates, isSaving, onSaveNow, isLegacyView, legacyCount }) => {
     if (isLoading) {
         return (
             <div className="flex justify-center items-center h-48">
@@ -539,57 +557,72 @@ const Checklist = ({ list, toggleCompletion, isLoading, error, totalCount, compl
 
     return (
         <div className="mt-6">
-            <div className="mb-4 p-4 bg-indigo-50 rounded-xl border border-indigo-200">
-                <div className="flex justify-between items-center">
-                    <div>
-                        <p className="text-lg font-semibold text-indigo-700">
-                            진행률: {completedCount} / {totalCount} ({completionRate}%)
-                        </p>
-                        <div className="mt-2 flex flex-wrap gap-4 text-sm">
-                            <div className="flex items-center">
-                                <span className="text-gray-600 mr-1">총 포인트:</span>
-                                <span className="font-semibold text-indigo-700">{pointStats.total.toLocaleString()}P</span>
-                            </div>
-                            <div className="flex items-center">
-                                <span className="text-gray-600 mr-1">완료 포인트:</span>
-                                <span className="font-semibold text-green-600">{pointStats.completed.toLocaleString()}P</span>
-                            </div>
-                            <div className="flex items-center">
-                                <span className="text-gray-600 mr-1">남은 포인트:</span>
-                                <span className="font-semibold text-orange-600">{pointStats.remaining.toLocaleString()}P</span>
-                            </div>
+            {isLegacyView ? (
+                <div className="mb-4 p-4 bg-gray-100 rounded-xl border border-gray-300">
+                    <div className="flex items-center">
+                        <div>
+                            <p className="text-lg font-semibold text-gray-700">
+                                유산 업적 (총 {legacyCount}개)
+                            </p>
+                            <p className="text-sm text-gray-500 mt-1">
+                                더 이상 히든 업적에 포함되지 않는 업적들입니다. 포인트가 적용되지 않습니다.
+                            </p>
                         </div>
                     </div>
-                    {pendingUpdates.size > 0 && (
-                        <div className="flex items-center space-x-2">
-                            {isSaving ? (
-                                <div className="flex items-center text-sm text-orange-600">
-                                    <Loader2 className="h-4 w-4 animate-spin mr-1" />
-                                    저장 중...
+                </div>
+            ) : (
+                <div className="mb-4 p-4 bg-indigo-50 rounded-xl border border-indigo-200">
+                    <div className="flex justify-between items-center">
+                        <div>
+                            <p className="text-lg font-semibold text-indigo-700">
+                                진행률: {completedCount} / {totalCount} ({completionRate}%)
+                            </p>
+                            <div className="mt-2 flex flex-wrap gap-4 text-sm">
+                                <div className="flex items-center">
+                                    <span className="text-gray-600 mr-1">총 포인트:</span>
+                                    <span className="font-semibold text-indigo-700">{pointStats.total.toLocaleString()}P</span>
                                 </div>
-                            ) : (
-                                <div className="flex items-center space-x-2">
-                                    <span className="text-sm text-orange-600">
-                                        {pendingUpdates.size}개 변경사항 대기 중
-                                    </span>
-                                    <button
-                                        onClick={onSaveNow}
-                                        className="px-3 py-1 bg-orange-500 text-white text-sm rounded-lg hover:bg-orange-600 transition"
-                                    >
-                                        지금 저장
-                                    </button>
+                                <div className="flex items-center">
+                                    <span className="text-gray-600 mr-1">완료 포인트:</span>
+                                    <span className="font-semibold text-green-600">{pointStats.completed.toLocaleString()}P</span>
                                 </div>
-                            )}
+                                <div className="flex items-center">
+                                    <span className="text-gray-600 mr-1">남은 포인트:</span>
+                                    <span className="font-semibold text-orange-600">{pointStats.remaining.toLocaleString()}P</span>
+                                </div>
+                            </div>
                         </div>
-                    )}
+                        {pendingUpdates.size > 0 && (
+                            <div className="flex items-center space-x-2">
+                                {isSaving ? (
+                                    <div className="flex items-center text-sm text-orange-600">
+                                        <Loader2 className="h-4 w-4 animate-spin mr-1" />
+                                        저장 중...
+                                    </div>
+                                ) : (
+                                    <div className="flex items-center space-x-2">
+                                        <span className="text-sm text-orange-600">
+                                            {pendingUpdates.size}개 변경사항 대기 중
+                                        </span>
+                                        <button
+                                            onClick={onSaveNow}
+                                            className="px-3 py-1 bg-orange-500 text-white text-sm rounded-lg hover:bg-orange-600 transition"
+                                        >
+                                            지금 저장
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                    </div>
+                    <div className="w-full bg-indigo-200 rounded-full h-2.5 mt-2">
+                        <div
+                            className="bg-indigo-600 h-2.5 rounded-full transition-all duration-500"
+                            style={{ width: `${completionRate}%` }}
+                        ></div>
+                    </div>
                 </div>
-                <div className="w-full bg-indigo-200 rounded-full h-2.5 mt-2">
-                    <div
-                        className="bg-indigo-600 h-2.5 rounded-full transition-all duration-500"
-                        style={{ width: `${completionRate}%` }}
-                    ></div>
-                </div>
-            </div>
+            )}
 
             {list.length === 0 ? (
                 <div className="text-center p-10 text-gray-500 bg-gray-50 rounded-xl">
