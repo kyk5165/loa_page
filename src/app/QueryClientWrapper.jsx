@@ -2,6 +2,7 @@
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useState } from 'react';
+import { AuthProvider } from '@/contexts/AuthContext';
 
 export function QueryClientWrapper({ children }) {
   // QueryClient를 클라이언트에서 생성하여 서버-클라이언트 전달 문제 해결
@@ -22,7 +23,9 @@ export function QueryClientWrapper({ children }) {
 
   return (
     <QueryClientProvider client={queryClient}>
-      {children}
+      <AuthProvider>
+        {children}
+      </AuthProvider>
     </QueryClientProvider>
   );
 }

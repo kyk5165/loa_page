@@ -1,9 +1,11 @@
 'use client'; // Next.js 클라이언트 컴포넌트임을 알림
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Check, Square, Search, Filter, Loader2, LogOut, ArrowLeft, RotateCcw, AlertTriangle, MessageCircle, Ship, Wrench } from 'lucide-react';
+import { Check, Square, Search, Filter, Loader2, LogOut, ArrowLeft, RotateCcw, AlertTriangle, MessageCircle, Ship, Wrench, Lock, User } from 'lucide-react';
 import Link from 'next/link';
 import { useAchievements, useUserProgress, useBatchUpdateProgress } from '../hooks/useSupabaseQueries';
+import { useAuth } from '@/contexts/AuthContext';
+import AuthModal from '@/components/auth/AuthModal';
 
 // ====================================================================
 // 1. 환경 변수 확인
@@ -13,7 +15,7 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8787';
 // ====================================================================
 // 점검 모드 설정
 // ====================================================================
-const MAINTENANCE_MODE = true;
+const MAINTENANCE_MODE = false;
 const MAINTENANCE_MESSAGE = '인증 시스템 업데이트 중입니다. 잠시 후 다시 접속해주세요.';
 
 // ====================================================================
@@ -39,26 +41,35 @@ const getDiscordUrl = (discordUrl) => {
 // 3. 메인 페이지 컴포넌트
 // ====================================================================
 export default function App() {
-    const [nickname, setNickname] = useState('');
+    const { user, isAuthenticated, isLoading: authLoading, logout } = useAuth();
+    const [viewNickname, setViewNickname] = useState(''); // 조회용 닉네임 (비로그인 시 사용)
     const [filter, setFilter] = useState('all');
     const [searchTerm, setSearchTerm] = useState('');
     const [isMounted, setIsMounted] = useState(false);
     const [pendingUpdates, setPendingUpdates] = useState(new Map()); // 배치 업데이트용
     const [showToggleAllModal, setShowToggleAllModal] = useState(false); // 전체 토글 경고 모달
+    const [showAuthModal, setShowAuthModal] = useState(false); // 인증 모달
+    const [authModalMode, setAuthModalMode] = useState('login'); // 'login' | 'register'
+
+    // 실제 사용할 닉네임 (로그인된 경우 user.nickname, 아니면 viewNickname)
+    const nickname = isAuthenticated ? user?.nickname : viewNickname;
 
     // React Query 훅들
     const { data: allAchievements = [], isLoading: achievementsLoading, error: achievementsError } = useAchievements();
     const { data: userProgress = [], isLoading: progressLoading, error: progressError } = useUserProgress(nickname);
     const batchUpdateMutation = useBatchUpdateProgress();
 
-    // 닉네임 로컬스토리지에서 불러오기
+    // 마운트 시 처리
     useEffect(() => {
-        const storedNickname = localStorage.getItem('checklist_nickname');
-        if (storedNickname) {
-            setNickname(storedNickname);
+        // 비로그인 상태에서 localStorage에 저장된 닉네임으로 조회
+        if (!isAuthenticated) {
+            const storedNickname = localStorage.getItem('checklist_nickname');
+            if (storedNickname) {
+                setViewNickname(storedNickname);
+            }
         }
         setIsMounted(true);
-    }, []);
+    }, [isAuthenticated]);
 
     // ----------------------------------------------------------------
     // 4. 데이터 병합 (React Query 데이터 사용)
@@ -120,9 +131,9 @@ export default function App() {
         return new Map();
     }, [nickname]);
 
-    // 배치 업데이트 저장 함수
+    // 배치 업데이트 저장 함수 (JWT 인증 필요)
     const saveBatchUpdates = useCallback(async () => {
-        if (pendingUpdates.size === 0 || !nickname) return;
+        if (pendingUpdates.size === 0 || !isAuthenticated) return;
 
         const updates = Array.from(pendingUpdates.entries()).map(([achievementId, isCompleted]) => ({
             achievementId,
@@ -130,21 +141,24 @@ export default function App() {
         }));
 
         console.log(`배치 업데이트: ${updates.length}개 항목 저장 (요청 절약)`);
-        
+
         try {
-            await batchUpdateMutation.mutateAsync({ nickname, updates });
+            await batchUpdateMutation.mutateAsync({ updates });
             setPendingUpdates(new Map());
-            
+
             // 성공 시 로컬 백업 삭제
             const backupKey = `pending_updates_${nickname}`;
             localStorage.removeItem(backupKey);
-            
+
             console.log('배치 업데이트 완료');
         } catch (err) {
             console.error('배치 업데이트 실패:', err);
-            // 실패 시 로컬 백업 유지
+            // 인증 만료 시 로그인 모달 표시
+            if (err.message.includes('인증')) {
+                setShowAuthModal(true);
+            }
         }
-    }, [pendingUpdates, nickname, batchUpdateMutation]);
+    }, [pendingUpdates, isAuthenticated, nickname, batchUpdateMutation]);
 
     // 자동 저장 타이머 (3초 후 자동 저장)
     useEffect(() => {
@@ -188,12 +202,19 @@ export default function App() {
     }, [pendingUpdates, saveBatchUpdates]);
 
     // ----------------------------------------------------------------
-    // 5. 진행 상황 토글 (배치 업데이트 방식)
+    // 5. 진행 상황 토글 (배치 업데이트 방식) - 로그인 필요
     // ----------------------------------------------------------------
     const toggleCompletion = useCallback((achievementId, currentStatus) => {
+        // 로그인하지 않은 경우 인증 모달 표시
+        if (!isAuthenticated) {
+            setAuthModalMode('login');
+            setShowAuthModal(true);
+            return;
+        }
+
         const newStatus = !currentStatus;
 
-        if (!nickname || !API_URL?.startsWith('http')) {
+        if (!API_URL?.startsWith('http')) {
             console.warn('API 서버 미설정. 로컬 상태만 변경됨.');
             return;
         }
@@ -202,17 +223,24 @@ export default function App() {
         setPendingUpdates(prev => {
             const newMap = new Map(prev);
             newMap.set(achievementId, newStatus);
-            
+
             // 로컬 스토리지에 백업
             saveToLocalStorage(newMap);
-            
+
             return newMap;
         });
-    }, [nickname, saveToLocalStorage]);
+    }, [isAuthenticated, saveToLocalStorage]);
 
-    // 전체 토글 함수 (활성 업적만)
+    // 전체 토글 함수 (활성 업적만) - 로그인 필요
     const toggleAllAchievements = useCallback(() => {
-        if (!nickname || !API_URL?.startsWith('http')) {
+        // 로그인하지 않은 경우 인증 모달 표시
+        if (!isAuthenticated) {
+            setAuthModalMode('login');
+            setShowAuthModal(true);
+            return;
+        }
+
+        if (!API_URL?.startsWith('http')) {
             console.warn('API 서버 미설정. 로컬 상태만 변경됨.');
             return;
         }
@@ -231,7 +259,7 @@ export default function App() {
         saveToLocalStorage(newUpdates);
 
         console.log(`전체 ${activeProgress.length}개 업적 상태 반전`);
-    }, [nickname, activeProgress, pendingUpdates, saveToLocalStorage]);
+    }, [isAuthenticated, activeProgress, pendingUpdates, saveToLocalStorage]);
 
     // 페이지 로드 시 로컬 백업 복원
     useEffect(() => {
@@ -296,7 +324,7 @@ export default function App() {
     // ----------------------------------------------------------------
     // 7. UI 렌더링
     // ----------------------------------------------------------------
-    if (!isMounted) {
+    if (!isMounted || authLoading) {
         return (
             <div className="min-h-screen flex items-center justify-center bg-gray-50">
                 <Loader2 className="h-10 w-10 animate-spin text-indigo-500" />
@@ -322,14 +350,26 @@ export default function App() {
         );
     }
 
+    // 닉네임이 없는 경우 (비로그인 + 조회 닉네임 미설정)
     if (!nickname) {
         return (
-            <NicknameInput
-                onNicknameSet={(input) => {
-                    localStorage.setItem('checklist_nickname', input);
-                    setNickname(input);
-                }}
-            />
+            <>
+                <NicknameInput
+                    onNicknameSet={(input) => {
+                        localStorage.setItem('checklist_nickname', input);
+                        setViewNickname(input);
+                    }}
+                    onLoginClick={() => {
+                        setAuthModalMode('login');
+                        setShowAuthModal(true);
+                    }}
+                />
+                <AuthModal
+                    isOpen={showAuthModal}
+                    onClose={() => setShowAuthModal(false)}
+                    initialMode={authModalMode}
+                />
+            </>
         );
     }
 
@@ -340,7 +380,7 @@ export default function App() {
                     <div>
                         <div className="flex items-center gap-4 mb-2">
                             <h1 className="text-3xl font-bold text-gray-800">나의 업적 체크리스트</h1>
-                            <Link 
+                            <Link
                                 href="/ship-calculator"
                                 className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
                             >
@@ -352,24 +392,55 @@ export default function App() {
                             <ArrowLeft
                                 className="h-4 w-4 mr-2 inline sm:hidden cursor-pointer"
                                 onClick={() => {
-                                    localStorage.removeItem('checklist_nickname');
-                                    setNickname('');
+                                    if (isAuthenticated) {
+                                        logout();
+                                    } else {
+                                        localStorage.removeItem('checklist_nickname');
+                                        setViewNickname('');
+                                    }
                                 }}
                             />
                             {nickname}님의 기록
+                            {!isAuthenticated && (
+                                <span className="ml-2 text-xs text-orange-500 font-normal">(읽기 전용)</span>
+                            )}
                         </p>
                     </div>
-                    <button
-                        onClick={() => {
-                            localStorage.removeItem('checklist_nickname');
-                            setNickname('');
-                        }}
-                        className="hidden sm:flex items-center text-sm text-gray-500 hover:text-red-600 transition duration-150 p-2 rounded-full hover:bg-red-50"
-                        title="다른 닉네임으로 접속"
-                    >
-                        <LogOut className="h-4 w-4 mr-1" />
-                        로그아웃
-                    </button>
+                    <div className="hidden sm:flex items-center gap-2">
+                        {isAuthenticated ? (
+                            <button
+                                onClick={logout}
+                                className="flex items-center text-sm text-gray-500 hover:text-red-600 transition duration-150 p-2 rounded-full hover:bg-red-50"
+                                title="로그아웃"
+                            >
+                                <LogOut className="h-4 w-4 mr-1" />
+                                로그아웃
+                            </button>
+                        ) : (
+                            <>
+                                <button
+                                    onClick={() => {
+                                        setAuthModalMode('login');
+                                        setShowAuthModal(true);
+                                    }}
+                                    className="flex items-center text-sm text-indigo-600 hover:text-indigo-800 transition duration-150 px-3 py-2 rounded-lg hover:bg-indigo-50 font-medium"
+                                >
+                                    <User className="h-4 w-4 mr-1" />
+                                    로그인
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        localStorage.removeItem('checklist_nickname');
+                                        setViewNickname('');
+                                    }}
+                                    className="flex items-center text-sm text-gray-500 hover:text-gray-700 transition duration-150 p-2 rounded-full hover:bg-gray-100"
+                                    title="다른 닉네임으로 조회"
+                                >
+                                    <ArrowLeft className="h-4 w-4" />
+                                </button>
+                            </>
+                        )}
+                    </div>
                 </header>
 
                 <Controls
@@ -410,6 +481,14 @@ export default function App() {
                         totalCount={activeProgress.length}
                     />
                 )}
+
+                {/* 인증 모달 */}
+                <AuthModal
+                    isOpen={showAuthModal}
+                    onClose={() => setShowAuthModal(false)}
+                    initialMode={authModalMode}
+                    initialNickname={viewNickname}
+                />
             </div>
         </div>
     );
@@ -418,7 +497,7 @@ export default function App() {
 // ====================================================================
 // 보조 컴포넌트
 // ====================================================================
-const NicknameInput = ({ onNicknameSet }) => {
+const NicknameInput = ({ onNicknameSet, onLoginClick }) => {
     const [input, setInput] = useState('');
     const [error, setError] = useState('');
 
@@ -434,33 +513,56 @@ const NicknameInput = ({ onNicknameSet }) => {
 
     return (
         <div className="min-h-screen flex items-center justify-center bg-gray-900 p-4">
-            <form onSubmit={handleSubmit} className="bg-white p-8 rounded-xl shadow-2xl w-full max-w-sm">
-                <h2 className="text-2xl font-bold mb-6 text-gray-800">닉네임으로 접속</h2>
-                <p className="text-sm text-gray-500 mb-6">사용자 닉네임을 입력하시면 개인 기록이 저장됩니다.</p>
+            <div className="bg-white p-8 rounded-xl shadow-2xl w-full max-w-sm">
+                <h2 className="text-2xl font-bold mb-2 text-gray-800">업적 체크리스트</h2>
+                <p className="text-sm text-gray-500 mb-6">닉네임을 입력하여 조회하거나, 로그인하여 기록을 관리하세요.</p>
 
-                <div className="mb-4">
-                    <label htmlFor="nickname" className="block text-sm font-medium text-gray-700 mb-1">
-                        닉네임
-                    </label>
-                    <input
-                        id="nickname"
-                        type="text"
-                        value={input}
-                        onChange={(e) => setInput(e.target.value)}
-                        placeholder="예: 용감한_개척자"
-                        className={`w-full px-4 py-2 border rounded-lg focus:ring-indigo-500 focus:border-indigo-500 transition text-gray-900 placeholder-gray-500 ${error ? 'border-red-500' : 'border-gray-300'}`}
-                        maxLength={20}
-                    />
-                    {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+                <form onSubmit={handleSubmit}>
+                    <div className="mb-4">
+                        <label htmlFor="nickname" className="block text-sm font-medium text-gray-700 mb-1">
+                            닉네임으로 조회
+                        </label>
+                        <input
+                            id="nickname"
+                            type="text"
+                            value={input}
+                            onChange={(e) => setInput(e.target.value)}
+                            placeholder="예: 용감한_개척자"
+                            className={`w-full px-4 py-2 border rounded-lg focus:ring-indigo-500 focus:border-indigo-500 transition text-gray-900 placeholder-gray-500 ${error ? 'border-red-500' : 'border-gray-300'}`}
+                            maxLength={20}
+                        />
+                        {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+                    </div>
+
+                    <button
+                        type="submit"
+                        className="w-full bg-gray-600 text-white py-2 rounded-lg font-semibold hover:bg-gray-700 transition duration-300 shadow-md mb-3"
+                    >
+                        조회하기 (읽기 전용)
+                    </button>
+                </form>
+
+                <div className="relative my-4">
+                    <div className="absolute inset-0 flex items-center">
+                        <div className="w-full border-t border-gray-300"></div>
+                    </div>
+                    <div className="relative flex justify-center text-sm">
+                        <span className="px-2 bg-white text-gray-500">또는</span>
+                    </div>
                 </div>
 
                 <button
-                    type="submit"
-                    className="w-full bg-indigo-600 text-white py-2 rounded-lg font-semibold hover:bg-indigo-700 transition duration-300 shadow-md"
+                    type="button"
+                    onClick={onLoginClick}
+                    className="w-full bg-indigo-600 text-white py-2 rounded-lg font-semibold hover:bg-indigo-700 transition duration-300 shadow-md flex items-center justify-center gap-2"
                 >
-                    체크리스트 접속
+                    <Lock className="w-4 h-4" />
+                    로그인 / 회원가입
                 </button>
-            </form>
+                <p className="text-xs text-gray-400 mt-3 text-center">
+                    로그인하면 체크리스트를 수정할 수 있습니다
+                </p>
+            </div>
         </div>
     );
 };

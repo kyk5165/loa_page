@@ -6,6 +6,7 @@ import {
   createAchievement,
   updateAchievement,
   deleteAchievement,
+  getAuthToken,
 } from '../lib/api';
 
 // ====================================================================
@@ -43,18 +44,18 @@ export const useUserProgress = (nickname) => {
 };
 
 /**
- * 배치 업데이트 뮤테이션 훅
+ * 배치 업데이트 뮤테이션 훅 (JWT 인증 필요)
  */
 export const useBatchUpdateProgress = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ nickname, updates }) => batchUpdateProgress(nickname, updates),
-    onSuccess: (data, variables) => {
-      // 성공 시 userProgress만 refetch (achievements는 영향받지 않음)
-      queryClient.refetchQueries({
-        queryKey: ['userProgress', variables.nickname],
-        exact: true,
+    mutationFn: ({ updates }) => batchUpdateProgress(updates),
+    onSuccess: () => {
+      // 성공 시 모든 userProgress 쿼리를 refetch
+      // (JWT에서 nickname을 알 수 없으므로 전체 invalidate)
+      queryClient.invalidateQueries({
+        queryKey: ['userProgress'],
       });
     },
   });
