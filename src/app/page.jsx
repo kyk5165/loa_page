@@ -1,7 +1,7 @@
 'use client'; // Next.js 클라이언트 컴포넌트임을 알림
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Check, Square, Search, Filter, Loader2, LogOut, ArrowLeft, RotateCcw, AlertTriangle, MessageCircle, Ship } from 'lucide-react';
+import { Check, Square, Search, Filter, Loader2, LogOut, ArrowLeft, RotateCcw, AlertTriangle, MessageCircle, Ship, Wrench } from 'lucide-react';
 import Link from 'next/link';
 import { useAchievements, useUserProgress, useBatchUpdateProgress } from '../hooks/useSupabaseQueries';
 
@@ -9,6 +9,12 @@ import { useAchievements, useUserProgress, useBatchUpdateProgress } from '../hoo
 // 1. 환경 변수 확인
 // ====================================================================
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8787';
+
+// ====================================================================
+// 점검 모드 설정
+// ====================================================================
+const MAINTENANCE_MODE = true;
+const MAINTENANCE_MESSAGE = '인증 시스템 업데이트 중입니다. 잠시 후 다시 접속해주세요.';
 
 // ====================================================================
 // 2. 디바운스 유틸리티
@@ -294,6 +300,24 @@ export default function App() {
         return (
             <div className="min-h-screen flex items-center justify-center bg-gray-50">
                 <Loader2 className="h-10 w-10 animate-spin text-indigo-500" />
+            </div>
+        );
+    }
+
+    // 점검 모드
+    if (MAINTENANCE_MODE) {
+        return (
+            <div className="min-h-screen flex items-center justify-center bg-gray-900 p-4">
+                <div className="bg-white p-8 rounded-2xl shadow-2xl max-w-md w-full text-center">
+                    <div className="w-16 h-16 bg-orange-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                        <Wrench className="h-8 w-8 text-orange-600" />
+                    </div>
+                    <h1 className="text-2xl font-bold text-gray-800 mb-4">점검 중</h1>
+                    <p className="text-gray-600 mb-6">{MAINTENANCE_MESSAGE}</p>
+                    <div className="text-sm text-gray-400">
+                        불편을 드려 죄송합니다.
+                    </div>
+                </div>
             </div>
         );
     }
